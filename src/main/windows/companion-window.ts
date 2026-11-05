@@ -23,6 +23,8 @@ export function createCompanionWindow(): BrowserWindow {
     y,
     frame: false,
     transparent: true,
+    // Electron 43+ rounds frameless windows on Linux, which would clip a transparent one
+    roundedCorners: process.platform !== 'linux',
     alwaysOnTop: true,
     resizable: false,
     hasShadow: false,

@@ -31,6 +31,8 @@ export function createScannerWindow(): BrowserWindow {
     y,
     frame: false,
     transparent: true,
+    // Electron 43+ rounds frameless windows on Linux, which would clip a transparent one
+    roundedCorners: process.platform !== 'linux',
     alwaysOnTop: true,
     resizable: false, // Window resizing is handled smoothly via our custom handles
     hasShadow: false,
