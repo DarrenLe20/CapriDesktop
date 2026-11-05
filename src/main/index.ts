@@ -13,6 +13,7 @@ import { proactiveDialogueService } from './services/proactive-dialogue-service'
 import { gamePresenceService } from './services/game-presence-service'
 import { updateService } from './services/update-service'
 import { legacyUserDataDir } from './services/legacy-data'
+import { initOverwolfGepProbe } from './services/game/overwolf-gep-probe'
 import fs from 'fs'
 import path from 'path'
 
@@ -58,6 +59,8 @@ if (!gotTheLock) {
   // Disable hardware acceleration issues with transparency on certain Windows drivers if needed,
   // but keep GPU compositing enabled for smooth 60fps canvas/css animations
   app.commandLine.appendSwitch('enable-transparent-visuals')
+  // Test: Overwolf game events for VALORANT (only active on Overwolf's Electron, npm run dev:ow)
+  initOverwolfGepProbe()
   // Global hotkeys on a Wayland desktop go through its portal (X11 doesn't need it)
   if (process.platform === 'linux' && process.env.XDG_SESSION_TYPE === 'wayland') {
     app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
