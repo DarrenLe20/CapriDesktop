@@ -289,8 +289,9 @@ export class WindowManager {
   ): boolean {
     if (!this.companionWin || this.companionWin.isDestroyed()) return false
 
-    const primaryDisplay = this.currentDisplay()
-    const { workArea } = primaryDisplay
+    // Perched, she goes to the monitor of the window she sits on, even if it isn't hers
+    const display = enabled && sittingPose === 'perch' && windowRect ? this.displayOfWindow(windowRect) : this.currentDisplay()
+    const { workArea } = display
 
     if (enabled) {
       // In tab mode: comfortable window (360x360) so UI never squashes or clips
@@ -354,8 +355,9 @@ export class WindowManager {
     sittingPose: 'perch' | 'front' = 'perch'
   ): void {
     if (!this.companionWin || this.companionWin.isDestroyed()) return
-    const primaryDisplay = this.currentDisplay()
-    const { workArea } = primaryDisplay
+    // She follows the window even when it's dragged onto another monitor
+    const display = sittingPose === 'perch' ? this.displayOfWindow(windowRect) : this.currentDisplay()
+    const { workArea } = display
     const width = 360
     const height = 360
 
@@ -420,6 +422,16 @@ export class WindowManager {
     this.companionWin.setBounds({ x: workArea.x + workArea.width - width - 20, y: workArea.y + workArea.height - height - 20, width, height }, false)
     if (remember) consciousnessService.setCompanionDisplayId(id)
     return true
+  }
+
+  /** The monitor most of a window is on */
+  private displayOfWindow(rect: { left: number; top: number; width: number; height: number }): Electron.Display {
+    return screen.getDisplayMatching({
+      x: Math.round(rect.left),
+      y: Math.round(rect.top),
+      width: Math.max(1, Math.round(rect.width)),
+      height: Math.max(1, Math.round(rect.height))
+    })
   }
 
   /** The screen she's on, so moving her to another monitor keeps her there */

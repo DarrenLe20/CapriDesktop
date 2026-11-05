@@ -268,6 +268,7 @@ export const en = {
   ob_storageReset: 'Use default',
   vs_monitor: 'Monitor',
   vs_monitorMain: 'main',
+  vs_wander: 'Let her walk from one monitor to the other',
   vs_boredom: 'Let her get bored: she opens tabs and music by herself when you are quiet',
   vs_pitch: 'Pitch:',
   vs_low: 'Low (-20Hz)',

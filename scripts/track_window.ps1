@@ -13,11 +13,22 @@ public class WindowTracker {
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 
+    // Real pixels on every monitor, same as get_windowed_apps.ps1 (Capri converts them)
+    static void UsePhysicalPixels() {
+        try {
+            if (SetThreadDpiAwarenessContext(new IntPtr(-4)) != IntPtr.Zero) return;
+        } catch {}
+        try { SetProcessDPIAware(); } catch {}
+    }
+
     public static void Track(long hwndLong) {
+        UsePhysicalPixels();
         IntPtr hWnd = new IntPtr(hwndLong);
         int lastL = -99999, lastT = -99999, lastW = -99999, lastH = -99999;
 

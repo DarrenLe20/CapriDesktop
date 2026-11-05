@@ -225,6 +225,11 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.DISPLAYS_LIST, () => windowManager.listDisplays())
   ipcMain.handle(IPC_CHANNELS.DISPLAYS_MOVE, (_event, id: number) => windowManager.moveCompanionToDisplay(id))
+  ipcMain.handle(IPC_CHANNELS.DISPLAYS_GET_WANDER, () => consciousnessService.isMonitorWanderEnabled())
+  ipcMain.handle(IPC_CHANNELS.DISPLAYS_SET_WANDER, (_event, enabled: boolean) => {
+    consciousnessService.setMonitorWanderEnabled(!!enabled)
+    return !!enabled
+  })
   ipcMain.handle(IPC_CHANNELS.BOREDOM_GET_ENABLED, () => consciousnessService.isBoredomEnabled())
   ipcMain.handle(IPC_CHANNELS.BOREDOM_SET_ENABLED, (_event, enabled: boolean) => {
     consciousnessService.setBoredomEnabled(!!enabled)

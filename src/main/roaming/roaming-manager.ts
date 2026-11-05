@@ -73,6 +73,22 @@ const TAB_QUOTES_ES = [
   'Descansando en tu ventana activa. Avisame cuando quieras hackear algo, {name}.'
 ]
 
+type WindowRect = { left: number; top: number; width: number; height: number }
+
+/**
+ * The window scripts report real pixels on every monitor; Electron places her in its own units, which differ on
+ * a monitor with another scale (a 150% laptop next to a 100% monitor, say)
+ */
+function toDipRect(rect: WindowRect): WindowRect {
+  if (process.platform !== 'win32') return rect
+  try {
+    const dip = screen.screenToDipRect(null, { x: rect.left, y: rect.top, width: rect.width, height: rect.height })
+    return { left: Math.round(dip.x), top: Math.round(dip.y), width: Math.round(dip.width), height: Math.round(dip.height) }
+  } catch {
+    return rect
+  }
+}
+
 export class RoamingManager {
   private isRoaming = false
   private isPaused = false
@@ -93,6 +109,9 @@ export class RoamingManager {
   private isTabMode = false
   private isEyeMode = false
   private isSelfMoving = false
+  private lastSelfMoveAt = 0
+  /** The monitor she's walking into, and how far above its taskbar she should land (null: she was in the air) */
+  private crossing: { to: number; floorGap: number | null } | null = null
   private tabTrackTimer: NodeJS.Timeout | null = null
   private trackProcess: ChildProcess | null = null
   private linuxTrackTimer: NodeJS.Timeout | null = null
@@ -105,7 +124,9 @@ export class RoamingManager {
     const companionWin = windowManager.getCompanionWindow()
     if (companionWin) {
       companionWin.on('moved', () => {
-        if (!this.isSelfMoving) {
+        // Crossing onto a monitor with another scale, Windows moves her again a moment after she moved herself.
+        // Real drags arrive through notifyUserDrag anyway
+        if (!this.isSelfMoving && Date.now() - this.lastSelfMoveAt > 250) {
           this.handleUserDrag()
         }
       })
@@ -340,11 +361,8 @@ export class RoamingManager {
       const key = JSON.stringify(geometry)
       if (key === last) return
       last = key
-      this.isSelfMoving = true
+      this.markSelfMove()
       windowManager.updateTabWindowPosition(geometry, 'perch')
-      setImmediate(() => {
-        this.isSelfMoving = false
-      })
     }, 120)
     this.linuxTrackTimer = timer
   }
@@ -393,11 +411,8 @@ export class RoamingManager {
               const parts = trimmed.split(',').map((p) => parseInt(p, 10))
               if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
                 const [left, top, width, height] = parts
-                this.isSelfMoving = true
-                windowManager.updateTabWindowPosition({ left, top, width, height }, 'perch')
-                setImmediate(() => {
-                  this.isSelfMoving = false
-                })
+                this.markSelfMove()
+                windowManager.updateTabWindowPosition(toDipRect({ left, top, width, height }), 'perch')
               }
             }
           })
@@ -467,10 +482,7 @@ export class RoamingManager {
               resolve({
                 hwnd: app.Hwnd,
                 title: app.Title,
-                left: app.Left,
-                top: app.Top,
-                width: app.Width,
-                height: app.Height,
+                ...toDipRect({ left: app.Left, top: app.Top, width: app.Width, height: app.Height }),
                 isBrowser: !!app.IsBrowser
               })
               return
@@ -661,6 +673,7 @@ export class RoamingManager {
   // --- Main Walking Loop (Smooth Movement along Desktop) ---
   private startLoop(): void {
     if (this.loopTimer) clearInterval(this.loopTimer)
+    this.crossing = null
 
     this.loopTimer = setInterval(() => {
       if (this.isEyeMode || !this.isRoaming || this.isPaused || this.currentBehavior !== 'walking' || this.isTabMode) {
@@ -677,36 +690,98 @@ export class RoamingManager {
       try {
         const bounds = companionWin.getBounds()
         // The screen she's on, not always the main one
-        const primaryDisplay = screen.getDisplayMatching(bounds)
-        const { workArea } = primaryDisplay
+        const display = screen.getDisplayMatching(bounds)
+        const { workArea } = display
 
         const minX = workArea.x + 10
         const maxX = workArea.x + workArea.width - bounds.width - 10
 
         let newX = bounds.x + (this.direction === 'right' ? this.speed : -this.speed)
+        let target = display
 
-        // Turn around at screen edges
-        if (newX >= maxX) {
-          newX = maxX
-          this.direction = 'left'
-          this.broadcastStatus()
-        } else if (newX <= minX) {
-          newX = minX
-          this.direction = 'right'
-          this.broadcastStatus()
+        // Only the edge she walks towards counts: halfway into the next monitor she's still behind its other edge
+        const atEdge = this.direction === 'right' ? newX >= maxX : newX <= minX
+        if (atEdge) {
+          const next = consciousnessService.isMonitorWanderEnabled() ? this.neighborDisplay(display, this.direction, bounds) : null
+          if (next) {
+            target = next
+          } else if (this.direction === 'right') {
+            newX = maxX
+            this.direction = 'left'
+            this.broadcastStatus()
+          } else {
+            newX = minX
+            this.direction = 'right'
+            this.broadcastStatus()
+          }
         }
 
-        // Smooth horizontal roaming, preserving current Y height (walks in the air or floor as placed by user)
-        const currentY = bounds.y
-        this.isSelfMoving = true
-        companionWin.setPosition(Math.round(newX), currentY)
-        setImmediate(() => {
-          this.isSelfMoving = false
-        })
+        // Keeps her height (in the air or on the floor, as the user placed her) unless the next monitor needs another one
+        const newY = this.walkingY(bounds, display, target)
+        this.markSelfMove()
+        // setBounds keeps her size when the other monitor has another scale
+        companionWin.setBounds({ x: Math.round(newX), y: Math.round(newY), width: bounds.width, height: bounds.height })
       } catch {
         // Safe catch if window is being moved or recreated
       }
     }, 40) // 25 updates/sec
+  }
+
+  /** The monitor right next to this one on that side, if there is one */
+  private neighborDisplay(display: Electron.Display, side: 'left' | 'right', bounds: Electron.Rectangle): Electron.Display | null {
+    const b = display.bounds
+    const edge = side === 'right' ? b.x + b.width : b.x
+    const feet = bounds.y + bounds.height
+    let best: Electron.Display | null = null
+    let bestDistance = Infinity
+    for (const d of screen.getAllDisplays()) {
+      if (d.id === display.id) continue
+      // Monitors with different scales can leave a few pixels between them
+      const touching = side === 'right' ? Math.abs(d.bounds.x - edge) <= 16 : Math.abs(d.bounds.x + d.bounds.width - edge) <= 16
+      // Side by side, not one above the other
+      const overlap = Math.min(b.y + b.height, d.bounds.y + d.bounds.height) - Math.max(b.y, d.bounds.y)
+      if (!touching || overlap <= 0) continue
+      const top = d.bounds.y
+      const bottom = d.bounds.y + d.bounds.height
+      const distance = feet < top ? top - feet : feet > bottom ? feet - bottom : 0
+      if (distance < bestDistance) {
+        best = d
+        bestDistance = distance
+      }
+    }
+    return best
+  }
+
+  /** Her height for the next step: she stays where she is, and only climbs or drops to fit the monitor she's walking into */
+  private walkingY(bounds: Electron.Rectangle, from: Electron.Display, to: Electron.Display): number {
+    if (to.id !== from.id && this.crossing?.to !== to.id) {
+      // Measured once, as she starts crossing: if she was walking on the floor she lands on the floor of the
+      // next monitor, even if it's taller or lower
+      const gap = from.workArea.y + from.workArea.height - (bounds.y + bounds.height)
+      this.crossing = { to: to.id, floorGap: gap >= -5 && gap <= 60 ? Math.max(0, gap) : null }
+    } else if (to.id === from.id && this.crossing?.to !== to.id) {
+      this.crossing = null
+    }
+
+    const wa = to.workArea
+    const top = wa.y
+    const bottom = wa.y + wa.height - bounds.height
+    let targetY = Math.min(bottom, Math.max(top, bounds.y))
+    if (this.crossing?.floorGap != null) targetY = Math.max(top, bottom - this.crossing.floorGap)
+
+    const dy = targetY - bounds.y
+    // Landed: from here on she walks at whatever height she has
+    if (to.id === from.id && Math.abs(dy) < 1) this.crossing = null
+    return bounds.y + Math.max(-12, Math.min(12, dy))
+  }
+
+  /** Her own moves aren't a user dragging her */
+  private markSelfMove(): void {
+    this.isSelfMoving = true
+    this.lastSelfMoveAt = Date.now()
+    setImmediate(() => {
+      this.isSelfMoving = false
+    })
   }
 
   private clearTimers(): void {

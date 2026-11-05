@@ -43,6 +43,20 @@ public class WindowedAppHelper {
 
     public const int DWMWA_CLOAKED = 14;
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    public const uint MONITOR_DEFAULTTONULL = 0;
+
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -51,6 +65,23 @@ public class WindowedAppHelper {
         public int Top;
         public int Right;
         public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    // Real pixels on every monitor (Capri converts them). Without this, a window on a monitor with another
+    // scale than the main one comes back at the wrong place
+    public static void UsePhysicalPixels() {
+        try {
+            if (SetThreadDpiAwarenessContext(new IntPtr(-4)) != IntPtr.Zero) return;
+        } catch {}
+        try { SetProcessDPIAware(); } catch {}
     }
 
     public class WindowEntry {
@@ -65,6 +96,7 @@ public class WindowedAppHelper {
     }
 
     public static List<WindowEntry> GetWindowedApps(int screenWidth, int screenHeight) {
+        UsePhysicalPixels();
         IntPtr hwinsta = OpenWindowStation("WinSta0", false, 0x037F);
         if (hwinsta != IntPtr.Zero) SetProcessWindowStation(hwinsta);
         IntPtr hdesk = OpenDesktop("Default", 0, false, 0x01FF);
@@ -89,11 +121,22 @@ public class WindowedAppHelper {
             // Filter out tiny windows/widgets
             if (w < 320 || h < 220) return true;
 
-            // Filter out off-screen windows
-            if (r.Left < -120 || r.Top < -80) return true;
+            // Filter out windows on no monitor at all. Negative positions are fine: that's a monitor
+            // to the left of (or above) the main one
+            IntPtr monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONULL);
+            if (monitor == IntPtr.Zero) return true;
 
-            // Filter out maximized or near full-screen snapped windows (leaving at least some room for windowed mode)
-            if (w >= (screenWidth - 30) && h >= (screenHeight - 85)) return true;
+            // Filter out maximized or near full-screen snapped windows (leaving at least some room for windowed mode),
+            // measured against the window's own monitor
+            int monW = screenWidth;
+            int monH = screenHeight;
+            var mi = new MONITORINFO();
+            mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (GetMonitorInfo(monitor, ref mi)) {
+                monW = mi.rcMonitor.Right - mi.rcMonitor.Left;
+                monH = mi.rcMonitor.Bottom - mi.rcMonitor.Top;
+            }
+            if (w >= (monW - 30) && h >= (monH - 85)) return true;
 
             var sb = new StringBuilder(256);
             GetWindowText(hWnd, sb, 256);

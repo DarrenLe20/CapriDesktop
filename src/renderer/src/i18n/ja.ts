@@ -270,6 +270,7 @@ export const ja: Messages = {
   ob_storageReset: '既定に戻す',
   vs_monitor: 'モニター',
   vs_monitorMain: 'メイン',
+  vs_wander: 'モニターからモニターへ歩いて移動できる',
   vs_boredom: '退屈を許可: 話しかけないと自分でタブや音楽を開きます',
   vs_pitch: 'ピッチ:',
   vs_low: '低い (-20Hz)',

@@ -25,6 +25,8 @@ export interface ConsciousnessData {
   boredomEnabled?: boolean
   /** The monitor she was put on */
   companionDisplayId?: number
+  /** She walks on into the next monitor instead of turning around at the edge */
+  monitorWanderEnabled?: boolean
   /** The arrow keys work as shortcuts while another app has the focus */
   arrowKeysEnabled?: boolean
   /** Hash of the Modelfile the installed persona was built from */
@@ -283,6 +285,15 @@ class ConsciousnessService {
 
   public setCompanionDisplayId(id: number): void {
     this.data.companionDisplayId = id
+    this.save()
+  }
+
+  public isMonitorWanderEnabled(): boolean {
+    return this.data.monitorWanderEnabled !== false
+  }
+
+  public setMonitorWanderEnabled(enabled: boolean): void {
+    this.data.monitorWanderEnabled = enabled
     this.save()
   }
 

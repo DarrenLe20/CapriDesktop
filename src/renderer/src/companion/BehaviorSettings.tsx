@@ -16,12 +16,14 @@ export const BehaviorSettings: React.FC = () => {
   const t = useT()
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [boredom, setBoredom] = useState(true)
+  const [wander, setWander] = useState(true)
 
   const load = () => window.api.companion.listDisplays().then(setDisplays).catch(() => {})
 
   useEffect(() => {
     void load()
     window.api.boredom.getEnabled().then(setBoredom).catch(() => {})
+    window.api.companion.getMonitorWander().then(setWander).catch(() => {})
   }, [])
 
   const current = displays.find((d) => d.current)
@@ -47,6 +49,19 @@ export const BehaviorSettings: React.FC = () => {
           ))}
         </select>
       </label>
+      {displays.length > 1 && (
+        <label className="flex items-center gap-2 text-[13px] text-stone-300 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={wander}
+            onChange={(e) => {
+              setWander(e.target.checked)
+              void window.api.companion.setMonitorWander(e.target.checked)
+            }}
+          />
+          {t('vs_wander')}
+        </label>
+      )}
       <label className="flex items-center gap-2 text-[13px] text-stone-300 cursor-pointer select-none">
         <input
           type="checkbox"

@@ -22,6 +22,8 @@ export const IPC_CHANNELS = {
   COMPANION_SET_HIT_THROUGH: 'companion:setHitThrough',
   DISPLAYS_LIST: 'displays:list',
   DISPLAYS_MOVE: 'displays:move',
+  DISPLAYS_GET_WANDER: 'displays:getWander',
+  DISPLAYS_SET_WANDER: 'displays:setWander',
   BOREDOM_GET_ENABLED: 'boredom:getEnabled',
   BOREDOM_SET_ENABLED: 'boredom:setEnabled',
   SETUP_GET_STORAGE: 'setup:getStorage',

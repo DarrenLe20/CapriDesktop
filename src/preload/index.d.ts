@@ -54,6 +54,8 @@ export interface IElectronAPI {
     setHitThrough: (ignore: boolean) => Promise<boolean>
     listDisplays: () => Promise<{ id: number; label: string; width: number; height: number; primary: boolean; current: boolean }[]>
     moveToDisplay: (id: number) => Promise<boolean>
+    getMonitorWander: () => Promise<boolean>
+    setMonitorWander: (enabled: boolean) => Promise<boolean>
     setClickThrough: (ignore: boolean) => Promise<boolean>
     onScriptEvent: (
       callback: (

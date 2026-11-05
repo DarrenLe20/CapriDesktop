@@ -270,6 +270,7 @@ export const es: Messages = {
   ob_storageReset: 'Usar predeterminado',
   vs_monitor: 'Monitor',
   vs_monitorMain: 'principal',
+  vs_wander: 'Que pueda caminar de un monitor al otro',
   vs_boredom: 'Que se pueda aburrir: abre pestañas y música por su cuenta cuando no le hablás',
   vs_pitch: 'Tono:',
   vs_low: 'Grave (-20Hz)',

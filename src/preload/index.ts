@@ -115,6 +115,8 @@ const api = {
     setHitThrough: (ignore: boolean): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.COMPANION_SET_HIT_THROUGH, ignore),
     listDisplays: (): Promise<{ id: number; label: string; width: number; height: number; primary: boolean; current: boolean }[]> => ipcRenderer.invoke(IPC_CHANNELS.DISPLAYS_LIST),
     moveToDisplay: (id: number): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.DISPLAYS_MOVE, id),
+    getMonitorWander: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.DISPLAYS_GET_WANDER),
+    setMonitorWander: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.DISPLAYS_SET_WANDER, enabled),
     setClickThrough: (ignore: boolean): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.COMPANION_SET_CLICK_THROUGH, ignore),
 
