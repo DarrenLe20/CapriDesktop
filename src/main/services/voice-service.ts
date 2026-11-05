@@ -1,5 +1,6 @@
 import { storageDir } from './storage-location'
 import { detectLanguage } from './language-detect'
+import { isSupportedLang } from '../../shared/languages'
 import { isCloudMode, llmFetch } from './llm-gateway'
 import { envFilePath, localFfmpegPath, pythonPath, scriptPath, voiceDataDir } from './app-paths'
 import { spawn, ChildProcess } from 'child_process'
@@ -226,7 +227,7 @@ export class VoiceService {
     if (!last || Date.now() - last.at > 15000 || !text.trim()) return null
     const clean = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
     // A wake word may have been taken off the start
-    return clean(last.text).includes(clean(text)) ? last.lang : null
+    return clean(last.text).includes(clean(text)) && isSupportedLang(last.lang) ? last.lang : null
   }
 
   public async transcribe(audioBuffer: Buffer, partial = false): Promise<TranscribeResult> {
@@ -349,24 +350,14 @@ export class VoiceService {
     const tempOut = path.join(os.tmpdir(), `capri_tts_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp3`)
 
     const isJapanese = /[\u3040-\u309F\u30A0-\u30FF]/.test(cleanText)
-    const isChinese = /[\u4E00-\u9FFF]/.test(cleanText) && !isJapanese
-    const isKorean = /[\uAC00-\uD7AF\u1100-\u11FF]/.test(cleanText)
-    const isCyrillic = /[\u0400-\u04FF]/.test(cleanText)
 
     // Strictly English function words that never appear in authentic Spanish sentences (NOTE: 'choomba' is neutral slang)
     const hasEnglishMarkers = /\b(the|what|doing|are|you|your|with|this|that|have|from|systems|online|jacked|neural|link|ready|catch|side|blackwall|construct|standing|powering|offline|reboot|shutdown|cupcake|boo|easy|desktop|homework|got\s+it|next\s+time|look|see|stop|dat|hack|hacking)\b/i.test(cleanText)
 
-    const hasPortugueseUnique = /[ãõêôçà]/i.test(cleanText)
-    const isPortuguese = hasPortugueseUnique || /\b(olá|ola|tudo|bem|obrigado|obrigada|voce|você|voces|vocês|não|nao|fazer|fazendo|fala|falando|legal|beleza|valeu|muito|muita|pra|pro|meu|minha|arquivo|tarefa|música|musica|bora|ajuda)\b/i.test(cleanText)
-
     const hasSpanishUnique = /[ñ¿¡]/i.test(cleanText)
     const hasSpanishWords = /\b(hola|buenas|estas|este|esto|bueno|dale|che|mira|mirá|posta|facha|zarpado|copado|hacer|podes|puedes|amigo|cancion|canción|musica|tarea|archivo|escritorio|estás|resolví|guardado|éxito|estoy|haciendo|pará|despeines|abriendo|cerrando|chau|adiós|dibuja|dibujá|dibujo|dibujar|dibújame|dibujame|perro|gato|casa|sol|arbol|árbol|monigote|aprende|aprendé|trazos|lienzo|paint|un|una|unos|unas|el|la|los|las|de|del|al|en|con|por|para|tambien|también|listo|lista|tranqui|de una|al toque|bienvenido|genial|espera|esperá)\b/i.test(cleanText)
     const hasSpanishAccents = /[áéíóú]/.test(cleanText)
-    const isSpanish = !isPortuguese && (hasSpanishUnique || hasSpanishWords || (hasSpanishAccents && !hasEnglishMarkers))
-
-    const isFrench = /\b(bonjour|salut|merci|oui|non|comment|avec|pourquoi|mon|bien)\b/i.test(cleanText)
-    const isGerman = /\b(hallo|guten|morgen|danke|bitte|nicht|wie|was|ist)\b/i.test(cleanText)
-    const isItalian = /\b(ciao|grazie|bene|come|cosa|amico|fare)\b/i.test(cleanText)
+    const isSpanish = hasSpanishUnique || hasSpanishWords || (hasSpanishAccents && !hasEnglishMarkers)
 
     const prefLang = consciousnessService.getPreferredLanguage()
     let targetLang = langOverride
@@ -377,14 +368,7 @@ export class VoiceService {
     }
     if (!targetLang) {
       if (isJapanese) targetLang = 'ja'
-      else if (isChinese) targetLang = 'zh'
-      else if (isKorean) targetLang = 'ko'
-      else if (isCyrillic) targetLang = 'ru'
-      else if (isPortuguese) targetLang = 'pt'
       else if (isSpanish) targetLang = 'es'
-      else if (isFrench) targetLang = 'fr'
-      else if (isGerman) targetLang = 'de'
-      else if (isItalian) targetLang = 'it'
       else if (hasEnglishMarkers) targetLang = 'en'
       else if (prefLang && prefLang !== 'auto') targetLang = prefLang
       else targetLang = 'en'
@@ -557,8 +541,7 @@ export class VoiceService {
     this.warmTranslator()
 
     const names: Record<string, string> = {
-      es: 'Rioplatense Spanish', en: 'English', pt: 'Brazilian Portuguese', fr: 'French', de: 'German',
-      it: 'Italian', ja: 'Japanese', ko: 'Korean', zh: 'Simplified Chinese', ru: 'Russian', pl: 'Polish'
+      es: 'Rioplatense Spanish', en: 'English', ja: 'Japanese'
     }
 
     const job = (async (): Promise<string | null> => {

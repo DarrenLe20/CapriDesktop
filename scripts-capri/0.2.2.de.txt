@@ -1,3 +1,0 @@
-[excited] Ich habe mich gerade aktualisiert, {name}! Diesmal geht es darum, wie wir reden.
-[happy] Alle meine festen Sätze gibt es jetzt in zehn Sprachen: Quickhacks, Gigs, League, Spotify, alles. [playful] Die Sprache, die du wählst, benutze ich auch.
-[warmly] Und wenn du in einer anderen Sprache mit mir redest, antworte ich dir in dieser.

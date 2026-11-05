@@ -1,3 +1,0 @@
-[excited] Je viens de me mettre à jour, {name} ! Cette fois, ça parle de notre façon de parler.
-[happy] Toutes mes phrases fixes existent maintenant en dix langues : quickhacks, contrats, League, Spotify, tout. [playful] La langue que tu choisis, c'est celle que j'utilise.
-[warmly] Et si tu me parles dans une autre langue, je te réponds dans celle-là.

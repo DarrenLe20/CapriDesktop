@@ -1,3 +1,0 @@
-[excited] Mi sono appena aggiornata, {name}! Stavolta si tratta di come parliamo.
-[happy] Ora tutte le mie frasi fisse sono in dieci lingue: quickhack, incarichi, League, Spotify, tutto. [playful] La lingua che scegli è quella che uso.
-[warmly] E se mi parli in un'altra lingua, ti rispondo in quella.

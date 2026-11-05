@@ -1,3 +1,0 @@
-[excited] Je viens de me mettre à jour, {name} ! J'ai réglé plein de choses cette fois.
-[happy] Mon ouïe ne se bloque plus et je retiens la langue dans laquelle tu me parles. [playful] Tu peux choisir mon écran, régler mes volumes et me dire de ne pas m'ennuyer si mes onglets te dérangent.
-[warmly] Et si tu m'installes sur un autre disque, tout ce dont j'ai besoin y va aussi.

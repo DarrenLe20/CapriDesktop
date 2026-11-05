@@ -37,7 +37,7 @@ Capri is a netrunner companion inspired by *Cyberpunk: Edgerunners*: playful, mi
 
 ### A. Voice providers (Edge-TTS / Fish Audio / ElevenLabs)
 The provider is picked in **TTS CONFIG** in the Dev Deck:
-- **Edge-TTS** (default, free): Microsoft neural voices, e.g. `en-US-AriaNeural` for English and `es-AR-ElenaNeural` for Spanish, plus Japanese, French, German, Portuguese, Italian, Russian and Chinese voices.
+- **Edge-TTS** (default, free): Microsoft neural voices, e.g. `en-US-AriaNeural` for English and `es-AR-ElenaNeural` for Spanish, plus `ja-JP-NanamiNeural` for Japanese.
 - **Fish Audio** / **ElevenLabs** (optional, API key required): more expressive voices. With Fish Audio you can use any voice model ID from its library or your own.
 
 Configuration is split in two files:
@@ -62,7 +62,7 @@ The LLM can write voice actions in brackets, e.g. `[laugh]`, `[giggles]`, `[laug
 - **Edge-TTS**: can't laugh, so `[laugh]` / `[laughs hard]` become written laughter (`jajaja` with Spanish voices, `hahaha` otherwise), `[giggles]` becomes `jiji` / `hehe`, and other tags are dropped.
 
 ### E. Speech recognition (local Whisper)
-Transcription uses **faster-whisper** on your GPU (falls back to the CPU automatically), model `small` by default, with a vocabulary of Capri, Cyberpunk and LoL terms. Set the `CAPRI_WHISPER_MODEL` environment variable (e.g. `medium`, `large-v3-turbo`) for more accuracy at the cost of more VRAM. In automatic mode it decides between Spanish and English only, which avoids accented English being transcribed as Spanish.
+Transcription uses **faster-whisper** on your GPU (falls back to the CPU automatically), model `small` by default, with a vocabulary of Capri, Cyberpunk and LoL terms. Set the `CAPRI_WHISPER_MODEL` environment variable (e.g. `medium`, `large-v3-turbo`) for more accuracy at the cost of more VRAM. In automatic mode it only considers English, Spanish and Japanese, and in a close call decides between Spanish and English, which avoids accented English being transcribed as Spanish.
 
 ### F. Always listening ("OÍDO")
 Press the **Right arrow (→)** and Capri listens all the time, but **only answers when you talk to her**:
@@ -171,12 +171,12 @@ Three independent settings, remembered between sessions:
 | **Capri's voice** | Language she speaks in. If it differs from the text, each line is translated by the local LLM (keeping `[laugh]` and other tags) before being spoken: she can write in Spanish and speak in English. | Same as the text. |
 | **Microphone** | Language Whisper expects. Fixing it is more accurate than auto-detection. | Whisper picks between Spanish and English. |
 
-Available languages: Spanish, English, Portuguese, French, German, Italian, Japanese, Korean, Chinese and Russian.
+Available languages: English, Spanish and Japanese.
 
 > Spoken-language translation uses `qwen2.5-coder:7b`. The model is warmed up when you pick a voice language (and when the app starts). If it's still loading, the first line is spoken in the original language and the translation is ready for the next one.
 
 ### Voice commands
-- `Hey Capri, talk in Spanish` / `Capri, habla en español` (also English, Japanese, French, German, Portuguese)
+- `Hey Capri, talk in Spanish` / `Capri, habla en español` (also English and Japanese)
 - `Hey Capri, talk in auto language` / `Capri, habla en cualquier idioma` returns to automatic mode.
 
 ---

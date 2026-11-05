@@ -1,3 +1,0 @@
-[excited] Mi sono appena aggiornata, {name}! Questa è la versione uno, quella vera.
-[happy] Parlo dieci lingue, cambio aspetto mentre parlo e ricordo quello che dico da sola, quindi puoi chiedermi perché l'ho fatto. [playful] E se perdo la voce, me la aggiusto da sola.
-[warmly] Se manca una parte della mia configurazione, puoi ripeterla dalle impostazioni del modello.

@@ -204,27 +204,7 @@ def clean_text_for_speech(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def is_portuguese_text(text: str) -> bool:
-    lower = text.lower()
-    # Portuguese-unique characters that never appear in Spanish
-    if re.search(r'[ãõêôçà]', lower):
-        return True
-    pt_words = [
-        'obrigado', 'obrigada', 'você', 'voce', 'vocês', 'voces', 'estou', 'música', 'musica',
-        'não', 'nao', 'então', 'entao', 'também', 'tambem', 'abra', 'feche', 'beleza', 'valeu',
-        'olá', 'ola', 'tudo', 'bem', 'fazer', 'fazendo', 'legal', 'muito', 'muita', 'pra', 'pro',
-        'minha', 'meu', 'meus', 'minhas', 'arquivo', 'tarefa', 'fala', 'falar', 'falando', 'bora',
-        'gente', 'ajuda', 'ajudar', 'tela', 'computador', 'pode', 'podem', 'consegue', 'comigo'
-    ]
-    for w in pt_words:
-        if re.search(rf'\b{re.escape(w)}\b', lower):
-            return True
-    return False
-
 def is_spanish_text(text: str) -> bool:
-    if is_portuguese_text(text):
-        return False
-
     lower = text.lower()
     # Pure English function words that never occur in authentic Spanish sentences
     en_markers = [
@@ -265,100 +245,32 @@ def is_spanish_text(text: str) -> bool:
         if re.search(rf'\b{re.escape(w)}\b', lower):
             return True
 
-    # Generic Spanish accented vowels (checked only if no Portuguese markers matched)
+    # Generic Spanish accented vowels
     if any(c in 'áéíóúü' for c in lower):
         return True
 
     return False
 
 def select_voice(text: str, cfg: dict, lang_override: str = None) -> str:
-    # Non-Latin scripts must take absolute precedence over language override,
-    # because Latin voices (es/en) fail with 'No audio was received' on CJK/Cyrillic scripts
-    # Japanese (Hiragana / Katakana)
-    if re.search(r'[\u3040-\u309F\u30A0-\u30FF]', text):
+    """Capri speaks English, Spanish and Japanese: picks the Edge-TTS voice for one of them."""
+    # Japanese script takes precedence over the override: Latin voices (es/en) fail with
+    # 'No audio was received' on Kana and Kanji
+    if re.search(r'[぀-ゟ゠-ヿ一-鿿]', text):
         return cfg.get("voice_ja", "ja-JP-NanamiNeural")
 
-    # Chinese (CJK ideographs without Kana)
-    if re.search(r'[\u4E00-\u9FFF]', text):
-        return cfg.get("voice_zh", "zh-CN-XiaoxiaoNeural")
-
-    # Korean (Hangul)
-    if re.search(r'[\uAC00-\uD7AF\u1100-\u11FF]', text):
-        return cfg.get("voice_ko", "ko-KR-SunHiNeural")
-
-    # Russian / Cyrillic
-    if re.search(r'[\u0400-\u04FF]', text):
-        return cfg.get("voice_ru", "ru-RU-SvetlanaNeural")
-
-    # Arabic
-    if re.search(r'[\u0600-\u06FF]', text):
-        return cfg.get("voice_ar", "ar-SA-ZariyahNeural")
-
-    # Check if text is distinctly Spanish first before blind English override
-    # Never allow a mistaken 'en' override to force an English voice on Spanish text.
+    # Never allow a mistaken 'en' override to force an English voice on Spanish text
     if is_spanish_text(text):
         if not lang_override or lang_override.lower().strip() in ('es', 'spanish', 'auto'):
             return cfg.get("voice_es", "es-AR-ElenaNeural")
 
-    # Check explicit lang_override if specified (for Latin scripts like ja-romaji, zh-pinyin, es, en, etc.)
     if lang_override:
         lo = lang_override.lower().strip()
         if lo in ('ja', 'japanese', 'jp'):
             return cfg.get("voice_ja", "ja-JP-NanamiNeural")
-        if lo in ('zh', 'chinese', 'cn'):
-            return cfg.get("voice_zh", "zh-CN-XiaoxiaoNeural")
-        if lo in ('ko', 'korean', 'kr'):
-            return cfg.get("voice_ko", "ko-KR-SunHiNeural")
-        if lo in ('ru', 'russian'):
-            return cfg.get("voice_ru", "ru-RU-SvetlanaNeural")
         if lo in ('es', 'spanish', 'espanol', 'español'):
             return cfg.get("voice_es", "es-AR-ElenaNeural")
-        if lo in ('en', 'english'):
-            return cfg.get("active_voice", "en-US-AriaNeural")
-        if lo in ('pt', 'portuguese'):
-            return cfg.get("voice_pt", "pt-BR-FranciscaNeural")
-        if lo in ('fr', 'french'):
-            return cfg.get("voice_fr", "fr-FR-DeniseNeural")
-        if lo in ('de', 'german'):
-            return cfg.get("voice_de", "de-DE-KatjaNeural")
-        if lo in ('it', 'italian'):
-            return cfg.get("voice_it", "it-IT-ElsaNeural")
-        if lo in ('pl', 'polish'):
-            return cfg.get("voice_pl", "pl-PL-ZofiaNeural")
-        if lo in ('nl', 'dutch'):
-            return cfg.get("voice_nl", "nl-NL-ColetteNeural")
-        if lo in ('tr', 'turkish'):
-            return cfg.get("voice_tr", "tr-TR-EmelNeural")
-        if lo in ('sv', 'swedish'):
-            return cfg.get("voice_sv", "sv-SE-SofieNeural")
-        if lo in ('uk', 'ukrainian'):
-            return cfg.get("voice_uk", "uk-UA-PolinaNeural")
 
-    # Text content heuristics for Latin scripts
-    lower = text.lower()
-    # Check Portuguese before Spanish so Portuguese phrases are never mistaken for Spanish
-    if is_portuguese_text(text):
-        return cfg.get("voice_pt", "pt-BR-FranciscaNeural")
-
-    if is_spanish_text(text):
-        return cfg.get("voice_es", "es-AR-ElenaNeural")
-
-    # French
-    fr_words = ['bonjour', 'merci', 'oui', 'salut', 'chanson', 'fermer', 'ouvrir', "s'il", 'vous', 'plaît', 'plait', 'avec']
-    if any(re.search(rf'\b{w}\b', lower) for w in fr_words):
-        return cfg.get("voice_fr", "fr-FR-DeniseNeural")
-
-    # German
-    de_words = ['hallo', 'danke', 'bitte', 'schließen', 'öffnen', 'musik', 'lied', 'tschüss', 'guten', 'morgen', 'tag']
-    if any(re.search(rf'\b{w}\b', lower) for w in de_words):
-        return cfg.get("voice_de", "de-DE-KatjaNeural")
-
-    # Italian
-    it_words = ['ciao', 'grazie', 'musica', 'canzone', 'chiudi', 'apri', 'buongiorno', 'buonasera', 'prego', 'per favore']
-    if any(re.search(rf'\b{w}\b', lower) for w in it_words):
-        return cfg.get("voice_it", "it-IT-ElsaNeural")
-
-    # Default fallback for English and unknown Latin text is Capri's primary English voice
+    # English and anything else: Capri's primary English voice
     return cfg.get("active_voice", "en-US-AriaNeural")
 
 def synthesize_elevenlabs(text: str, out_path: str, el_cfg: dict, synth_preset: str = "cyber_android", pitch_str: str = "+32Hz") -> bool:
@@ -707,11 +619,16 @@ def whisper_prompt(language):
     return WHISPER_NAMES + WHISPER_PHRASES.get(language, "")
 
 
+SUPPORTED_LANGS = ("en", "es", "ja")
+
+
 def choose_language(probs: dict, hint: str = None) -> str:
     """
     The language of the audio. With a clear winner, that one. In a close call accented English
     tends to come out as Spanish, so it's settled between the language she expects and English.
+    Only the languages Capri speaks (en, es, ja) are considered.
     """
+    probs = {c: p for c, p in probs.items() if c in SUPPORTED_LANGS} or {"en": 1.0}
     best = max(probs, key=probs.get)
     if probs[best] >= 0.7:
         return best

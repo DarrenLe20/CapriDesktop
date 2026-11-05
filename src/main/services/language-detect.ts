@@ -3,7 +3,12 @@
  * When the evidence is thin or tied it says so ('unknown') instead of guessing: a wrong guess makes
  * Capri answer in a language nobody spoke to her in. Words shared between languages ("no", "la",
  * "de", "mi") are left out on purpose, because they decide nothing.
+ *
+ * It still tells other languages apart, so their words don't count as Spanish or English and a
+ * model reply in the wrong language gets noticed, but she only answers in en, es and ja.
  */
+
+import { isSupportedLang } from '../../shared/languages'
 
 export type DetectedLang = 'es' | 'en' | 'pt' | 'fr' | 'de' | 'it' | 'pl' | 'ru' | 'ja' | 'ko' | 'zh' | 'unknown'
 
@@ -78,8 +83,10 @@ export function scoreLanguage(text: string): LanguageScore {
   return { lang: best[0], score: best[1] - second[1] }
 }
 
+/** Only the languages she speaks: a message in any other one tells nothing ('unknown') */
 export function detectLanguage(text: string): DetectedLang {
-  return scoreLanguage(text).lang
+  const { lang } = scoreLanguage(text)
+  return isSupportedLang(lang) ? lang : 'unknown'
 }
 
 /** The language of a text only when the evidence leaves no doubt, to tell the model it got it wrong */

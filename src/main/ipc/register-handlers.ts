@@ -16,6 +16,7 @@ import { voiceService } from '../services/voice-service'
 import { checkAddressed } from '../services/wake-word'
 import { consciousnessService } from '../services/consciousness-service'
 import { localizeLine } from '../../shared/lines'
+import { isSupportedLang } from '../../shared/languages'
 import { ToolExecutor } from '../agents/tools/tool-executor'
 import { scannerService } from '../services/scanner-service'
 import { boredomService } from '../services/boredom-service'
@@ -292,6 +293,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.COMPANION_SET_LANGUAGE, (_event, lang: string) => {
+    if (!isSupportedLang(lang)) lang = 'en'
     consciousnessService.setPreferredLanguage(lang)
     windowManager.broadcast(IPC_CHANNELS.COMPANION_LANGUAGE_CHANGED, lang)
     return lang

@@ -1,3 +1,0 @@
-[excited] 我刚更新好,{name}!这次很短。
-[happy] 这个程序以前叫 Cyber Companion,现在叫 Capri Desktop,你会在安装程序和我的快捷方式上看到新名字。[warmly] 放心:我什么都记得,你的数据还在原处。
-[proud] 以前我自己打开 Ollama 时,有时脑子里空间不够,会忘记自己是谁。[giggles] 现在空间翻倍了,所以我还是我。

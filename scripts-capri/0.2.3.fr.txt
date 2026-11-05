@@ -1,2 +1,0 @@
-[excited] Je viens de me mettre à jour, {name} ! J'ai appris un nouveau tour.
-[happy] Maintenant je peux changer d'apparence au milieu d'une phrase : mon œil cyber, mes deux grands yeux, ou le rouge quand ça devient sérieux. [playful] Demande-moi de te montrer, ou regarde-moi le faire quand ça s'y prête.

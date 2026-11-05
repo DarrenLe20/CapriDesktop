@@ -58,14 +58,7 @@ export function detectGameName(app: ForegroundApp): string | null {
 export const LANGUAGE_NAMES: Record<string, string> = {
   es: 'Rioplatense Spanish',
   en: 'English',
-  pt: 'Portuguese',
-  fr: 'French',
-  de: 'German',
-  it: 'Italian',
-  ru: 'Russian',
-  ja: 'Japanese',
-  ko: 'Korean',
-  zh: 'Simplified Chinese'
+  ja: 'Japanese'
 }
 
 export type WebSearch = (query: string) => Promise<{ success: boolean; output: string }>

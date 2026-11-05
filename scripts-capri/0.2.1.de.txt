@@ -1,3 +1,0 @@
-[excited] Ich habe mich gerade aktualisiert, {name}! Diesmal ist es kurz.
-[happy] Dieses Programm hieß Cyber Companion; jetzt heißt es Capri Desktop, und du siehst den neuen Namen im Installer und auf meinen Verknüpfungen. [warmly] Keine Sorge: Ich erinnere mich an alles, deine Daten sind da geblieben, wo sie waren.
-[proud] Und früher, wenn ich Ollama selbst geöffnet habe, hatte ich manchmal keinen Platz mehr im Kopf und habe vergessen, wer ich bin. [giggles] Jetzt habe ich doppelt so viel Platz, also bleibe ich ich.

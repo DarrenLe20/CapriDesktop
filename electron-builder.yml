@@ -104,14 +104,7 @@ nsis:
   installerLanguages:
     - en_US
     - es_ES
-    - pt_BR
-    - fr_FR
-    - de_DE
-    - it_IT
-    - ru_RU
     - ja_JP
-    - ko_KR
-    - zh_CN
   # Launch right away: the first-run wizard asks the user's name and sets up voice / AI
   runAfterFinish: true
   deleteAppDataOnUninstall: false

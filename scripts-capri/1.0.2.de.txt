@@ -1,2 +1,0 @@
-[excited] Ich habe mich gerade aktualisiert, {name}! Und diesmal wirklich.
-[happy] Früher habe ich mich verabschiedet und geschlossen, ohne etwas zu installieren. [giggles] Jetzt aktualisiere ich mich, komme von selbst zurück und erzähle es dir.

@@ -1,3 +1,0 @@
-[excited] Ich habe mich gerade aktualisiert, {name}! Das ist Version eins, die echte.
-[happy] Ich spreche zehn Sprachen, ändere beim Reden mein Aussehen und erinnere mich an das, was ich von mir aus sage, also kannst du mich fragen, warum ich es getan habe. [playful] Und wenn ich meine Stimme verliere, repariere ich sie selbst.
-[warmly] Wenn ein Teil meiner Einrichtung fehlt, kannst du sie in den Modelleinstellungen erneut starten.

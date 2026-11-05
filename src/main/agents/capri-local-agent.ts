@@ -1484,15 +1484,7 @@ ${lastScanContext}
     const langNames: Record<string, string> = {
       es: 'Spanish (español rioplatense)',
       en: 'English',
-      ja: 'Japanese (日本語)',
-      zh: 'Chinese (中文)',
-      ko: 'Korean (한국어)',
-      ru: 'Russian (Русский)',
-      fr: 'French (Français)',
-      de: 'German (Deutsch)',
-      pt: 'Brazilian Portuguese (português do Brasil)',
-      it: 'Italian (Italiano)',
-      pl: 'Polish (polski)'
+      ja: 'Japanese (日本語)'
     }
     const targetLangName = langNames[effectiveLang]
     const settingLang = consciousnessService.getPreferredLanguage()
@@ -1742,14 +1734,11 @@ LANGUAGE RULE: ${langDirective}`
 
             // Announce completion to user in requested language
             const isEs = detectedLang === 'es'
-            const isPt = detectedLang === 'pt'
 
             if (result.success && fnName === 'media_control') {
               this.emit('event', {
                 type: 'assistant.delta',
-                text: isPt
-                  ? 'Música pulada! Próxima faixa tocando no Spotify, choomba.'
-                  : isEs
+                text: isEs
                   ? '¡Pista saltada! Siguiente tema girando en Spotify, choomba.'
                   : 'Track skipped! Next tune spinning on Spotify, choomba!',
                 timestamp: Date.now()
@@ -1758,15 +1747,7 @@ LANGUAGE RULE: ${langDirective}`
               const appName = String(fnArgs.appOrUrl || 'la aplicación')
               const isSpotify = /spotify/i.test(appName) || /spotify/i.test(String(fnArgs.query || ''))
               let textMsg = ''
-              if (isPt) {
-                if (isSpotify && fnArgs.query) {
-                  textMsg = `Coloquei "${fnArgs.query}" no Spotify, choomba! Aumenta o som aí.`
-                } else if (isSpotify) {
-                  textMsg = 'Spotify aberto e pronto, choomba! Bora curtir o som.'
-                } else {
-                  textMsg = `Alvo invadido! Entramos direto no ${appName}, choomba.`
-                }
-              } else if (isEs) {
+              if (isEs) {
                 if (isSpotify && fnArgs.query) {
                   textMsg = `¡Puse "${fnArgs.query}" en Spotify, choomba! A subir el volumen.`
                 } else if (isSpotify) {
@@ -3433,16 +3414,13 @@ DIRECTIVES FOR FORMATTING AND REASONING:
     const mEn = lower.match(/(?:talk|speak|chat|respond|reply|switch|change|set)\s+(?:in|to|the\s+language\s+to|language\s+to)?\s*([a-zñáéíóúãõçêôà]+)(?:\s+language)?/i)
     // Spanish patterns: "habla en español", "habla en ingles", "cambia el idioma a español", "pone el idioma en español"
     const mEs = lower.match(/(?:habla|hablame|hablemos|responde|contesta|cambia|cambiar|pone|poner|configura)\s+(?:siempre\s+|a\s+partir\s+de\s+ahora\s+)?(?:en|el\s+idioma\s+a|el\s+idioma\s+en|de\s+idioma\s+a|a)?\s*([a-zñáéíóúãõçêôà]+)(?:\s+idioma)?/i)
-    // Portuguese patterns: "muda o idioma para portugues", "fala em portugues", "trocar idioma para portugues"
-    const mPt = lower.match(/(?:fala|fale|muda|mudar|troca|trocar|altera|alterar|responde|responda)\s+(?:sempre\s+|a\s+partir\s+de\s+agora\s+)?(?:em|o\s+idioma\s+para|o\s+idioma\s+pra|de\s+idioma\s+para|para|pra)?\s*([a-zñáéíóúãõçêôà]+)(?:\s+idioma)?/i)
-
-    const match = mEn || mEs || mPt
+    const match = mEn || mEs
     if (lower.split(/\s+/).length > 8 || (match && match.index !== 0)) return null
     const rawCandidate = match ? match[1] : null
     let word = rawCandidate ? rawCandidate.toLowerCase().trim() : ''
 
     if (!word) {
-      const direct = lower.match(/\b(?:speak|talk|habla|responde|fala|fale)\s+([a-zñáéíóúãõçêôà]+)\b/i)
+      const direct = lower.match(/\b(?:speak|talk|habla|responde)\s+([a-zñáéíóúãõçêôà]+)\b/i)
       if (direct) word = direct[1].toLowerCase().trim()
     }
 
@@ -3467,48 +3445,6 @@ DIRECTIVES FOR FORMATTING AND REASONING:
         langCode: 'ja',
         langName: 'Japanese',
         confirmationPhrase: '了解、相棒！これからはずっと日本語で話すよ。次はどうする、{name}？'
-      }
-    }
-    if (/^(?:french|frances|francés|français)$/i.test(word)) {
-      return {
-        langCode: 'fr',
-        langName: 'French',
-        confirmationPhrase: 'Compris, choomba ! À partir de maintenant, je te parlerai toujours en français. Prêt à tout casser, {name} ?'
-      }
-    }
-    if (/^(?:german|aleman|alemán|deutsch)$/i.test(word)) {
-      return {
-        langCode: 'de',
-        langName: 'German',
-        confirmationPhrase: 'Verstanden, Choomba! Ab jetzt spreche ich immer auf Deutsch mit dir. Was hacken wir heute, {name}?'
-      }
-    }
-    if (/^(?:portuguese|portugues|portugués|português)$/i.test(word)) {
-      return {
-        langCode: 'pt',
-        langName: 'Portuguese',
-        confirmationPhrase: 'Entendido, choomba! A partir de agora vou falar sempre em português com você. Bora lá, {name}!'
-      }
-    }
-    if (/^(?:italian|italiano)$/i.test(word)) {
-      return {
-        langCode: 'it',
-        langName: 'Italian',
-        confirmationPhrase: "Ricevuto, choomba! D'ora in poi ti parlerò siempre in italiano. Che facciamo oggi, {name}?"
-      }
-    }
-    if (/^(?:russian|ruso|rusky)$/i.test(word)) {
-      return {
-        langCode: 'ru',
-        langName: 'Russian',
-        confirmationPhrase: 'Поняла, чумба! С этого момента я всегда буду говорить с тобой по-русски. Что взломаем сегодня, {name}?'
-      }
-    }
-    if (/^(?:chinese|chino|mandarin)$/i.test(word)) {
-      return {
-        langCode: 'zh',
-        langName: 'Chinese',
-        confirmationPhrase: '收到，兄弟！从现在起我会一直用中文跟你交流。今天我们黑进哪儿，{name}？'
       }
     }
     if (/^(?:auto|cualquiera|detect|adapt|adaptable)$/i.test(word)) {

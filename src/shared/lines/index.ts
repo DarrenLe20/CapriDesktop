@@ -6,17 +6,10 @@
  */
 
 import source from './en.json'
-import de from './de.json'
 import es from './es.json'
-import fr from './fr.json'
-import it from './it.json'
 import ja from './ja.json'
-import ko from './ko.json'
-import pt from './pt.json'
-import ru from './ru.json'
-import zh from './zh.json'
 
-const CATALOG: Record<string, (string | null)[]> = { de, es, fr, it, ja, ko, pt, ru, zh }
+const CATALOG: Record<string, (string | null)[]> = { es, ja }
 
 const EMOJI = /[\u{1F000}-\u{1FAFF}]|[\u{2600}-\u{27BF}]/gu
 const TAG = /\[[a-zA-Z][a-zA-Z0-9_ ,-]*\]/g

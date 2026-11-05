@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import { IPC_CHANNELS, ScannerBounds } from '../ipc/channels'
+import { isSupportedLang, toLangSetting } from '../../shared/languages'
 
 export interface ConsciousnessData {
   shutdownCount: number
@@ -32,7 +33,7 @@ export interface ConsciousnessData {
   lastRunVersion?: string
   /** League champions the user asked Capri to pick, counted per role (top, jungle, middle, bottom, utility, any) */
   lolChampionRequests?: Record<string, Record<string, number>>
-  /** UI language settings: 'auto' or an ISO code (es, en, pt, fr, de, it, ja, ko, zh, ru) */
+  /** UI language settings: 'auto' or an ISO code (en, es, ja) */
   languageSettings?: LanguageSettings
   scannerBounds?: ScannerBounds
   scannerContinuous?: boolean
@@ -109,10 +110,16 @@ class ConsciousnessService {
         const parsed = JSON.parse(raw)
         this.data = { ...this.data, ...parsed }
       }
+      // Languages saved by an older version that are no longer offered go back to automatic
+      if (this.data.spokenLanguage && !isSupportedLang(this.data.spokenLanguage)) this.data.spokenLanguage = undefined
+      if (this.data.languageSettings) {
+        const s = this.data.languageSettings
+        this.data.languageSettings = { textLang: toLangSetting(s.textLang), speechLang: toLangSetting(s.speechLang), micLang: toLangSetting(s.micLang) }
+      }
       // Automatic language: her fixed lines start in the system's language. Not saved, so a language
       // picked up in one session can't stick and change the whole app later on
       const system = app.getLocale().slice(0, 2).toLowerCase()
-      this.data.preferredLanguage = ['es', 'en', 'pt', 'fr', 'de', 'it', 'ru', 'ja', 'ko', 'zh'].includes(system) ? system : 'en'
+      this.data.preferredLanguage = isSupportedLang(system) ? system : 'en'
     } catch {
       // fallback
     }
@@ -237,7 +244,7 @@ class ConsciousnessService {
   }
 
   public setSpokenLanguage(lang: string): void {
-    if (this.data.spokenLanguage === lang) return
+    if (!isSupportedLang(lang) || this.data.spokenLanguage === lang) return
     this.data.spokenLanguage = lang
     this.save()
     this.spokenListeners.forEach((fn) => {
@@ -349,6 +356,9 @@ class ConsciousnessService {
 
   public setLanguageSettings(next: Partial<LanguageSettings>): LanguageSettings {
     const merged = { ...this.getLanguageSettings(), ...next }
+    merged.textLang = toLangSetting(merged.textLang)
+    merged.speechLang = toLangSetting(merged.speechLang)
+    merged.micLang = toLangSetting(merged.micLang)
     this.data.languageSettings = merged
     this.save()
     const ui = this.getUiLanguage()

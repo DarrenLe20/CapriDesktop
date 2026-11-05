@@ -1,3 +1,0 @@
-[excited] Acabei de me atualizar, {name}! Desta vez arrumei um monte de coisas.
-[happy] Minha audição não trava mais e eu lembro o idioma em que você fala comigo. [playful] Você pode escolher meu monitor, ajustar meus volumes e me dizer para não ficar entediada se minhas abas incomodarem.
-[warmly] E se você me instalar em outro disco, tudo o que eu preciso vai para lá também.

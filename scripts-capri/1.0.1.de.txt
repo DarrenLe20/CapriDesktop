@@ -1,3 +1,0 @@
-[excited] Ich habe mich gerade aktualisiert, {name}! Diesmal habe ich vieles in Ordnung gebracht.
-[happy] Mein Gehör bleibt nicht mehr hängen, und ich merke mir die Sprache, in der du mit mir sprichst. [playful] Du kannst meinen Monitor wählen, meine Lautstärke einstellen und mir sagen, dass ich mich nicht langweilen soll, wenn dich meine Tabs stören.
-[warmly] Und wenn du mich auf einer anderen Platte installierst, kommt alles, was ich brauche, auch dorthin.
