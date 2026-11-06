@@ -136,9 +136,15 @@ export class RoamingManager {
   private driftUntil = 0
   private glancing = false
   private gazing = false
+  // Falling to the floor (getting off a window): she doesn't walk until she lands
+  private dropping = false
+  // Right after being put on a monitor (greeting, rescue, going home) she doesn't hop off it for a while
+  private stayUntil = 0
   private hopToken = 0
   // The monitor of the window she sits on, to notice it being dragged to another one
   private perchDisplayId: number | null = null
+  /** The window she sits on, to follow it again after the deck was open */
+  private perchApp: WindowedAppInfo | null = null
   private lastFallLineAt = 0
   // A game of tag she offered, waiting for a click, and who to tell how a chase ended
   private tagOffer: { timer: NodeJS.Timeout; onResult: (result: 'caught' | 'escaped' | 'ignored') => void } | null = null
@@ -182,8 +188,12 @@ export class RoamingManager {
   }
 
   public setEyeMode(enabled: boolean): void {
+    // The companion view says "eye mode off" every time she starts or stops talking: when it's already off that
+    // changes nothing, instead of restarting her whole cycle (which cut every sit and stroll short)
+    if (!enabled && !this.isEyeMode) return
     this.isEyeMode = enabled
     if (enabled) {
+      this.abortCatchGame()
       this.clearTimers()
       this.isRoaming = false
       this.isPaused = true
@@ -206,6 +216,13 @@ export class RoamingManager {
   // --- Autonomous Behavior Cycle (Desktop Mode) ---
   public startAutonomousCycle(): void {
     if (this.isEyeMode || this.isCatchGameActive || windowManager.isGamingModeActive()) return
+    // Sitting on a window: she keeps following it, and gets up when her time there is up
+    if (this.isTabMode && this.currentBehavior === 'tab') {
+      this.isPaused = false
+      if (!this.trackProcess && !this.linuxTrackTimer && !this.tabTrackTimer) this.startTabTracking(this.perchApp)
+      if (!this.autonomousTimer) this.scheduleNextAutonomousBehavior()
+      return
+    }
     this.clearTimers()
     this.isPaused = false
 
@@ -239,6 +256,7 @@ export class RoamingManager {
     const delay = delayMs ?? this.getDurationForBehavior(this.currentBehavior)
 
     this.autonomousTimer = setTimeout(() => {
+      this.autonomousTimer = null
       this.transitionToBehavior(nextBehavior)
     }, delay)
   }
@@ -263,12 +281,20 @@ export class RoamingManager {
     this.gazeToken++
     this.gazing = false
 
+    const wasSitting = this.isTabMode
     if (behavior !== 'tab') {
       this.stopTabTracking()
       this.isTabMode = false
     }
 
     this.currentBehavior = behavior
+
+    // Getting up from a window: back to her standing size and down to the floor, instead of walking on air
+    if (behavior !== 'tab' && wasSitting) {
+      this.markSelfMove()
+      windowManager.setTabMode(false, undefined, true)
+      this.dropToFloor()
+    }
 
     if (behavior === 'tab') {
       this.isRoaming = false
@@ -417,6 +443,7 @@ export class RoamingManager {
       return
     }
     this.perchDisplayId = app ? displayOfRect(app).id : null
+    if (app) this.perchApp = app
 
     if (app && app.hwnd && isLinux) {
       this.startLinuxTabTracking(String(app.hwnd))
@@ -576,6 +603,8 @@ export class RoamingManager {
     if (this.isTabMode || this.currentBehavior === 'tab') {
       return
     }
+    // Still falling off a window: she gets back on her feet first (and then picks what to do herself)
+    if (this.dropping) return
     this.isEyeMode = false
     this.isPaused = false
     this.transitionToBehavior('walking')
@@ -583,6 +612,14 @@ export class RoamingManager {
   }
 
   public stop(): void {
+    // Sitting on a window: the companion view freezes roaming while she sits or talks, but she keeps sitting,
+    // keeps following the window, and gets up by herself when her time there is up
+    if (this.isTabMode && this.currentBehavior === 'tab' && !this.isEyeMode) {
+      this.isRoaming = false
+      return
+    }
+    // Mid-chase she keeps running even if she says something; the game ends by itself
+    if (this.isCatchGameActive) return
     this.isPaused = true
     this.clearTimers()
     this.isRoaming = false
@@ -591,13 +628,24 @@ export class RoamingManager {
   }
 
   public pause(): void {
+    // The deck opened: a chase in progress ends without a winner
+    this.abortCatchGame()
     this.isPaused = true
     this.clearTimers()
     this.broadcastStatus()
   }
 
   public resume(): void {
-    if (this.isTabMode || this.currentBehavior === 'tab' || windowManager.isGamingModeActive()) {
+    if (windowManager.isGamingModeActive()) return
+    if (this.isTabMode && this.currentBehavior === 'tab') {
+      // Back from the deck and still sitting: follow the window again and get up in a while
+      this.isPaused = false
+      if (!this.trackProcess && !this.linuxTrackTimer && !this.tabTrackTimer) this.startTabTracking(this.perchApp)
+      this.scheduleNextAutonomousBehavior(15000)
+      this.broadcastStatus()
+      return
+    }
+    if (this.isTabMode || this.currentBehavior === 'tab') {
       return
     }
     this.isEyeMode = false
@@ -782,8 +830,8 @@ export class RoamingManager {
         }
         return
       }
-      // Mid-hop, or stopped for a moment to look somewhere
-      if (this.hopping || this.glancing) return
+      // Mid-hop, falling to the floor, or stopped for a moment to look somewhere
+      if (this.hopping || this.glancing || this.dropping) return
 
       const companionWin = windowManager.getCompanionWindow()
       if (!companionWin || companionWin.isDestroyed() || !companionWin.isVisible()) return
@@ -867,7 +915,7 @@ export class RoamingManager {
 
   /** The monitor she may hop to from this edge, if any: beside this one, walking between monitors on, nothing fullscreen there */
   private hopTarget(display: Electron.Display, bounds: Electron.Rectangle): Electron.Display | null {
-    if (!consciousnessService.isMonitorWanderEnabled()) return null
+    if (!consciousnessService.isMonitorWanderEnabled() || Date.now() < this.stayUntil) return null
     const next = this.neighborDisplay(display, this.direction, bounds)
     if (!next || !presenceService.canActNow('move', next.id)) return null
     return next
@@ -933,6 +981,13 @@ export class RoamingManager {
       if (token !== this.hopToken) return
       this.markSelfMove()
       windowManager.moveCompanionToDisplay(displayId, false)
+      // She lands in a corner: face into the monitor, and stay on it a minute instead of walking straight back
+      this.stayUntil = Date.now() + 60 * 1000
+      const win = windowManager.getCompanionWindow()
+      if (win && !win.isDestroyed()) {
+        const b = win.getBounds()
+        this.direction = b.x + b.width / 2 > target.bounds.x + target.bounds.width / 2 ? 'left' : 'right'
+      }
       this.glitch('in')
       this.hopping = false
       this.broadcastStatus()
@@ -1087,23 +1142,29 @@ export class RoamingManager {
     }
     this.broadcastStatus()
 
-    const win = windowManager.getCompanionWindow()
     // Back on her feet (which also schedules what she does next)
-    const land = (): void => {
+    this.dropToFloor(() => {
       setTimeout(() => {
         if (this.currentBehavior === 'still' && !this.isTabMode && !this.isEyeMode && !this.isPaused) this.transitionToBehavior('still')
       }, 900)
-    }
-    if (!win || win.isDestroyed()) return land()
+    })
+  }
+
+  /** Drops her from wherever she is to the floor of her monitor, falling faster and faster */
+  private dropToFloor(landed?: () => void): void {
+    const win = windowManager.getCompanionWindow()
+    if (!win || win.isDestroyed()) return landed?.()
     const start = win.getBounds()
     const wa = screen.getDisplayMatching(start).workArea
     const floor = wa.y + wa.height - start.height - 20
-    if (start.y >= floor - 4) return land()
+    if (start.y >= floor - 4) return landed?.()
+    this.dropping = true
     let y = start.y
     let speed = 0
     const timer = setInterval(() => {
-      if (win.isDestroyed() || this.isTabMode) {
+      if (win.isDestroyed() || this.isTabMode || this.isEyeMode) {
         clearInterval(timer)
+        this.dropping = false
         return
       }
       speed += 2.5
@@ -1113,7 +1174,8 @@ export class RoamingManager {
       win.setBounds({ x: b.x, y: Math.round(y), width: b.width, height: b.height })
       if (y >= floor) {
         clearInterval(timer)
-        land()
+        this.dropping = false
+        landed?.()
       }
     }, 16)
   }
@@ -1156,11 +1218,20 @@ export class RoamingManager {
       clearTimeout(this.userDragPauseTimer)
       this.userDragPauseTimer = null
     }
+    // A running chase keeps its own countdown: clearing it here left her stuck in a game that never ended
+    this.stopTabTracking()
+  }
+
+  /** Ends a chase without a winner (Gaming Mode, the deck): no lines, nobody picks anything */
+  private abortCatchGame(): void {
     if (this.catchGameTimer) {
       clearInterval(this.catchGameTimer)
       this.catchGameTimer = null
     }
-    this.stopTabTracking()
+    if (!this.isCatchGameActive) return
+    this.isCatchGameActive = false
+    this.speed = 2.2
+    this.onCatchFinished = null
   }
 
   public broadcastStatus(): void {

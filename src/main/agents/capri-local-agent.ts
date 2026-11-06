@@ -1172,7 +1172,7 @@ export class CapriLocalAgent extends EventEmitter {
       }
 
       const action = isPrevSongIntent ? 'prev' : isPauseIntent ? 'pause' : isPlayMusicOnlyIntent ? 'play' : 'next'
-      await this.runSingleTool(
+      const mediaRes = await this.runSingleTool(
         'media_control',
         { action },
         projectPath,
@@ -1184,7 +1184,14 @@ export class CapriLocalAgent extends EventEmitter {
           ? 'Pausing Apple Music playback...'
           : 'Resuming Apple Music playback...'
       )
-      this.emitAssistant(this.mediaLine(action, isSpanish))
+      // Only claims it worked if it did (resuming a freshly opened Apple Music has nothing to play)
+      this.emitAssistant(
+        mediaRes.success
+          ? this.mediaLine(action, isSpanish)
+          : isSpanish
+          ? 'No hay nada sonando que pueda manejar, choomba. Pedime un tema y lo pongo.'
+          : "There's nothing playing for me to control, choom. Name a song and I'll put it on."
+      )
       this.finishSession()
       return
     }

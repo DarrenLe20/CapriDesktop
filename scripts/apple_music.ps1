@@ -107,12 +107,30 @@ function Invoke-Element($element) {
 # opening the app, its window takes a while: waits up to TimeoutSec for it
 function Invoke-TransportButton([int]$waitSec) {
     $deadline = (Get-Date).AddSeconds($waitSec)
+    $disabledSince = $null
     do {
         $root = Find-AppleWindow
-        if ($root -and (Invoke-Element (Find-ById $root 'TransportControl_PlayPauseStop'))) { return $true }
+        $button = if ($root) { Find-ById $root 'TransportControl_PlayPauseStop' } else { $null }
+        if ($button) {
+            if ($button.Current.IsEnabled) { if (Invoke-Element $button) { return $true } }
+            # Just opened with nothing queued, the button stays disabled: no point waiting the whole time
+            elseif (-not $disabledSince) { $disabledSince = Get-Date }
+            elseif (((Get-Date) - $disabledSince).TotalSeconds -gt 4) { return $false }
+        }
         if ((Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 700 }
     } while ((Get-Date) -lt $deadline)
     $false
+}
+
+# True once something is actually playing, so a play that started nothing isn't reported as done
+function Wait-Playing([int]$sec) {
+    $deadline = (Get-Date).AddSeconds($sec)
+    do {
+        $s = Select-Session (Get-Manager) $false
+        if (Test-Playing $s) { return $s }
+        Start-Sleep -Milliseconds 400
+    } while ((Get-Date) -lt $deadline)
+    $null
 }
 
 Add-Type -Namespace CapriMedia -Name Keys -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);'
@@ -234,13 +252,21 @@ function Invoke-Control([string]$cmd) {
         }
         if (Await $op ([bool])) { return @{ ok = $true; app = (Get-AppName ([string]$session.SourceAppUserModelId)); method = 'session' } }
     }
-    if ($cmd -eq 'play' -or $cmd -eq 'toggle') {
-        if (Invoke-TransportButton $TimeoutSec) { return @{ ok = $true; app = 'Apple Music'; method = 'button' } }
+    $wantsPlay = $cmd -eq 'play' -or $cmd -eq 'toggle'
+    if ($wantsPlay -and (Invoke-TransportButton $TimeoutSec)) {
+        $playing = Wait-Playing 4
+        if ($playing) { return @{ ok = $true; app = (Get-AppName ([string]$playing.SourceAppUserModelId)); method = 'button' } }
     }
     # Nothing has a session: a play/pause key would start something instead of pausing it
     if ($cmd -eq 'pause' -and -not $session) { return @{ ok = $true; app = ''; method = 'none' } }
     $vk = switch ($cmd) { 'next' { 0xB0 } 'prev' { 0xB1 } default { 0xB3 } }
     Send-Key $vk
+    if ($wantsPlay) {
+        # Only a success if something is playing now (a freshly opened Apple Music has nothing queued)
+        $playing = Wait-Playing 3
+        if ($playing) { return @{ ok = $true; app = (Get-AppName ([string]$playing.SourceAppUserModelId)); method = 'keys' } }
+        return @{ ok = $false; app = ''; method = 'keys'; reason = 'nothing to resume' }
+    }
     @{ ok = $true; app = ''; method = 'keys' }
 }
 
