@@ -1,4 +1,5 @@
-import { listProcessNames, mediaWindowTitles } from './platform'
+import { isWindows, listProcessNames, mediaWindowTitles, type NowPlaying } from './platform'
+import { appleMusic } from './apple-music-service'
 import os from 'os'
 import { agentManager } from '../agents/agent-manager'
 import { consciousnessService } from './consciousness-service'
@@ -11,19 +12,26 @@ interface TriggerConfig {
 }
 
 export interface ActiveMediaInfo {
-  type: 'youtube' | 'tiktok' | 'reels' | 'twitch' | 'netflix' | 'spotify' | 'google' | 'browser' | 'game' | 'code' | 'other'
+  type: 'youtube' | 'tiktok' | 'reels' | 'twitch' | 'netflix' | 'music' | 'google' | 'browser' | 'game' | 'code' | 'other'
   title: string
   creator?: string
   artist?: string
   track?: string
   genre?: string
+  /** Music only: a song is playing, not just the player open */
+  playing?: boolean
   rawTitle: string
   appName: string
   lastSeen: number
 }
 
+export type MediaFilter = 'music' | 'youtube' | 'tiktok' | 'reels' | 'video' | 'audio' | 'browser'
+
+/** Browsers have media sessions too, but their tab titles already say what's on */
+const BROWSER_PLAYER = /chrome|chromium|msedge|edge|firefox|opera|brave|308046B0AF4A39CB/i
+
 export interface ActiveMediaRegistry {
-  spotify?: ActiveMediaInfo
+  music?: ActiveMediaInfo
   youtube?: ActiveMediaInfo
   tiktok?: ActiveMediaInfo
   reels?: ActiveMediaInfo
@@ -50,7 +58,7 @@ export class SystemObserver {
     cyberpunk: { lastTriggered: 0, cooldownMs: 20 * 60 * 1000 },
     valorant: { lastTriggered: 0, cooldownMs: 20 * 60 * 1000 },
     steam: { lastTriggered: 0, cooldownMs: 30 * 60 * 1000 },
-    spotify: { lastTriggered: 0, cooldownMs: 30 * 60 * 1000 },
+    music: { lastTriggered: 0, cooldownMs: 30 * 60 * 1000 },
     discord: { lastTriggered: 0, cooldownMs: 30 * 60 * 1000 },
     vscode: { lastTriggered: 0, cooldownMs: 30 * 60 * 1000 },
     browser_search: { lastTriggered: 0, cooldownMs: 15 * 60 * 1000 },
@@ -178,7 +186,7 @@ export class SystemObserver {
 
         const isEs = consciousnessService.getPreferredLanguage() === 'es'
 
-        // Check for proactive media comment (YouTube, TikTok, Reels, Twitch, Netflix, Spotify)
+        // Check for proactive media comment (YouTube, TikTok, Reels, Twitch, Netflix, Apple Music)
         if (
           detectedMedia &&
           (detectedMedia.title !== this.lastCommentedMediaTitle || Date.now() - this.triggers.media_watching.lastTriggered > 4 * 60 * 1000) &&
@@ -256,16 +264,20 @@ export class SystemObserver {
                   `Streaming "${detectedMedia.title}"? Looks like movie night in Night City, choomba!`
                 ]
             this.triggerCapriReaction(lines[Math.floor(Math.random() * lines.length)], 'talking')
-          } else if (detectedMedia.type === 'spotify') {
-            const lines = isEs
-              ? [
-                  `¿Escuchando "${detectedMedia.title}" en Spotify? ¡Temazo total, choomba! Que siga sonando la música.`,
-                  `¡Qué temazo! "${detectedMedia.title}" mantiene mis rutinas de tecnópata vibrando.`
-                ]
-              : [
-                  `Spinning "${detectedMedia.title}" on Spotify? Total banger, choomba! Keep the music pumping.`,
-                  `Now that's a killer track! "${detectedMedia.title}" keeps my technopath subroutines humming.`
-                ]
+          } else if (detectedMedia.type === 'music') {
+            // Another player playing: no lines that name Apple Music
+            const onAppleMusic = detectedMedia.appName === 'Apple Music'
+            const lines = (
+              isEs
+                ? [
+                    `¿Escuchando "${detectedMedia.title}" en Apple Music? ¡Temazo total, choomba! Que siga sonando la música.`,
+                    `¡Qué temazo! "${detectedMedia.title}" mantiene mis rutinas de tecnópata vibrando.`
+                  ]
+                : [
+                    `Spinning "${detectedMedia.title}" on Apple Music? Total banger, choomba! Keep the music pumping.`,
+                    `Now that's a killer track! "${detectedMedia.title}" keeps my technopath subroutines humming.`
+                  ]
+            ).filter((line) => onAppleMusic || !line.includes('Apple Music'))
             this.triggerCapriReaction(lines[Math.floor(Math.random() * lines.length)], 'talking')
           }
 
@@ -431,13 +443,13 @@ export class SystemObserver {
           return resolve()
         }
 
-        // Check for Spotify
+        // Check for Apple Music
         if (
-          currentProcesses.has('spotify.exe') &&
-          !this.previousProcesses.has('spotify.exe') &&
-          this.canTrigger('spotify')
+          currentProcesses.has('applemusic.exe') &&
+          !this.previousProcesses.has('applemusic.exe') &&
+          this.canTrigger('music')
         ) {
-          this.markTriggered('spotify')
+          this.markTriggered('music')
           this.triggerCapriReaction(
             isEs
               ? "¿Metiéndole música a tus implantes de audio? ¡Mandale algo de Samurai o Ponpon Shit, choomba!"
@@ -505,12 +517,10 @@ export class SystemObserver {
     })
   }
 
-  public getActiveMedia(
-    filter?: 'spotify' | 'youtube' | 'tiktok' | 'reels' | 'video' | 'audio' | 'browser'
-  ): ActiveMediaInfo | null {
-    if (filter === 'spotify' || filter === 'audio') {
-      return this.mediaRegistry.spotify && Date.now() - this.mediaRegistry.spotify.lastSeen < 3 * 60 * 1000
-        ? this.mediaRegistry.spotify
+  public getActiveMedia(filter?: MediaFilter): ActiveMediaInfo | null {
+    if (filter === 'music' || filter === 'audio') {
+      return this.mediaRegistry.music && Date.now() - this.mediaRegistry.music.lastSeen < 3 * 60 * 1000
+        ? this.mediaRegistry.music
         : null
     }
     if (filter === 'youtube') {
@@ -548,11 +558,31 @@ export class SystemObserver {
     return null
   }
 
-  public async detectActiveMedia(
-    filter?: 'spotify' | 'youtube' | 'tiktok' | 'reels' | 'video' | 'audio' | 'browser'
-  ): Promise<ActiveMediaInfo | null> {
+  /** A player's song as media info. Null without a player, or when it's a browser */
+  private musicFrom(now: NowPlaying): ActiveMediaInfo | null {
+    if (now.status === 'None' || !now.app || BROWSER_PLAYER.test(now.source)) return null
+    const playing = now.status === 'Playing' && !!now.title
+    return {
+      type: 'music',
+      title: playing ? now.title : now.app,
+      creator: now.artist || undefined,
+      artist: now.artist || undefined,
+      track: playing ? now.title : undefined,
+      playing,
+      rawTitle: [now.artist, now.title].filter(Boolean).join(' - ') || now.app,
+      appName: now.app,
+      lastSeen: Date.now()
+    }
+  }
+
+  public async detectActiveMedia(filter?: MediaFilter): Promise<ActiveMediaInfo | null> {
+    // The song comes from the media session, a PowerShell run on Windows: the background check
+    // only asks while Apple Music is open, a question about the music always asks
+    const asked = filter === 'music' || filter === 'audio'
+    const askMusic = asked || !isWindows || this.previousProcesses.has('applemusic.exe')
+    const nowPlaying = askMusic ? appleMusic.nowPlaying(asked ? 0 : 25000).catch(() => null) : Promise.resolve(null)
     return new Promise((resolve) => {
-      void mediaWindowTitles().then((rows) => {
+      void Promise.all([mediaWindowTitles(), nowPlaying]).then(([rows, playing]) => {
         if (!rows) return resolve(this.getActiveMedia(filter))
 
         const freshRegistry: ActiveMediaRegistry = {}
@@ -681,64 +711,30 @@ export class SystemObserver {
               }
             }
 
-            // Spotify Desktop App
-            else if (proc.includes('spotify')) {
-              const isSpecific =
-                rawTitle !== 'Spotify' &&
-                rawTitle !== 'Spotify Free' &&
-                rawTitle !== 'Spotify Premium'
-              const songTitle = isSpecific
-                ? rawTitle.replace(/^Spotify(?: Free| Premium)?\s*[-–—:]\s*/i, '').trim()
-                : 'Spotify'
-
-              let artist: string | undefined
-              let track = songTitle
-              if (isSpecific) {
-                const parts = songTitle.split(/\s*[-–—]\s*/)
-                if (parts.length >= 2) {
-                  artist = parts[0].trim()
-                  track = parts.slice(1).join(' - ').trim()
-                }
-              }
-
-              // Always prefer a specific song title over generic 'Spotify'
-              if (!freshRegistry.spotify || isSpecific) {
-                freshRegistry.spotify = {
-                  type: 'spotify',
-                  title: track,
-                  creator: artist,
-                  artist,
-                  track,
-                  rawTitle,
-                  appName: proc,
-                  lastSeen: Date.now()
-                }
-              }
-            }
-
-            // Spotify Web Player in browsers (Opera, Chrome, Edge, Brave, Firefox)
+            // Apple Music's website in browsers (Opera, Chrome, Edge, Brave, Firefox)
             else if (
               (proc.includes('opera') ||
                 proc.includes('chrome') ||
                 proc.includes('msedge') ||
                 proc.includes('brave') ||
                 proc.includes('firefox')) &&
-              lowerTitle.includes('spotify') &&
-              !freshRegistry.spotify
+              lowerTitle.includes('apple music') &&
+              !freshRegistry.music
             ) {
               const cleanTitle = rawTitle
-                .replace(/\s*[-–—|•]\s*Spotify.*$/i, '')
                 .replace(/\s*-\s*(?:Google Chrome|Microsoft Edge|Brave|Mozilla Firefox|Opera(?:\s+GX)?).*$/i, '')
-                .replace(/^Spotify\s*[-–—|•]\s*/i, '')
+                .replace(/\s*(?:[-–—|•]|\bon)\s*Apple Music.*$/i, '')
+                .replace(/^Apple Music\s*[-–—|•]\s*/i, '')
                 .trim()
               const isSpecific =
-                cleanTitle &&
-                !/^(?:web player|spotify|home|inicio|search|buscar)$/i.test(cleanTitle)
-              freshRegistry.spotify = {
-                type: 'spotify',
-                title: isSpecific ? cleanTitle : 'Spotify Web',
+                !!cleanTitle &&
+                !/^(?:web player|apple music|home|inicio|search|buscar|browse|explorar|listen now|radio)$/i.test(cleanTitle)
+              freshRegistry.music = {
+                type: 'music',
+                title: isSpecific ? cleanTitle : 'Apple Music',
+                playing: isSpecific,
                 rawTitle,
-                appName: proc,
+                appName: 'Apple Music',
                 lastSeen: Date.now()
               }
             }
@@ -771,10 +767,14 @@ export class SystemObserver {
           }
         }
 
+        // Apple Music or any other player. Its app wins over its website unless the app is paused
+        const music = playing ? this.musicFrom(playing) : null
+        if (music && (music.playing || !freshRegistry.music)) freshRegistry.music = music
+
         this.mediaRegistry = freshRegistry
 
-        if (filter === 'spotify' || filter === 'audio') {
-          return resolve(this.mediaRegistry.spotify || null)
+        if (filter === 'music' || filter === 'audio') {
+          return resolve(this.mediaRegistry.music || null)
         }
         if (filter === 'youtube') {
           return resolve(this.mediaRegistry.youtube || null)
@@ -806,7 +806,7 @@ export class SystemObserver {
           this.mediaRegistry.twitch ||
           this.mediaRegistry.netflix ||
           this.mediaRegistry.browser ||
-          this.mediaRegistry.spotify ||
+          (this.mediaRegistry.music?.playing ? this.mediaRegistry.music : null) ||
           null
 
         resolve(this.latestActiveMedia)
@@ -814,9 +814,7 @@ export class SystemObserver {
     })
   }
 
-  public async getActiveMediaAsync(
-    filter?: 'spotify' | 'youtube' | 'tiktok' | 'reels' | 'video' | 'audio' | 'browser'
-  ): Promise<ActiveMediaInfo | null> {
+  public async getActiveMediaAsync(filter?: MediaFilter): Promise<ActiveMediaInfo | null> {
     const fresh = await this.detectActiveMedia(filter)
     return fresh || this.getActiveMedia(filter)
   }

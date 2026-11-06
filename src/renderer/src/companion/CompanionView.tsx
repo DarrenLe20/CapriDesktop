@@ -1743,6 +1743,15 @@ export const CompanionView: React.FC = () => {
       return
     }
 
+    // During the catch game (or her offer of tag) a click catches her instead of opening the deck
+    const { isCatchGameActive, offeringTag } = useCompanionStore.getState()
+    if (isCatchGameActive || offeringTag) {
+      e.preventDefault()
+      e.stopPropagation()
+      void window.api.game.catchSuccess()
+      return
+    }
+
     // Normal click: open Dev Deck
     if (window.api) {
       await window.api.deck.show()
@@ -1781,7 +1790,7 @@ export const CompanionView: React.FC = () => {
 
     const isCloseOrDelete =
       /^(?:cierra|cerrar|close|kill|termina|terminar|apaga|apagar|shut\s*down|shutdown|power\s*off|borra|borrar|elimina|eliminar|delete|remove|rm)\s*/i.test(text) ||
-      /(?:cierra|cerrar|close|kill|borra|borrar|elimina|eliminar|delete)\s+(?:chrome|steam|spotify|discord|youtube|calc|calculadora|notepad|bloc|obs|lol|league|valorant|cyberpunk|palworld|roblox|juego|game|archivo|file|carpeta|folder)/i.test(text)
+      /(?:cierra|cerrar|close|kill|borra|borrar|elimina|eliminar|delete)\s+(?:chrome|steam|apple\s*music|itunes|discord|youtube|calc|calculadora|notepad|bloc|obs|lol|league|valorant|cyberpunk|palworld|roblox|juego|game|archivo|file|carpeta|folder)/i.test(text)
     pendingCloseDeleteRef.current = isCloseOrDelete
 
     const isVoiceSettingsCmd =

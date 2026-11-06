@@ -10,6 +10,8 @@ import { voiceService } from '../services/voice-service'
 import { consciousnessService } from '../services/consciousness-service'
 import { scannerService } from '../services/scanner-service'
 import { isLinux, linuxCursorPosition } from '../services/platform'
+import { foregroundWatch } from '../services/foreground-watch-service'
+import { displayOfRect } from '../services/screen-coords'
 
 export class WindowManager {
   private companionWin: BrowserWindow | null = null
@@ -426,12 +428,7 @@ export class WindowManager {
 
   /** The monitor most of a window is on */
   private displayOfWindow(rect: { left: number; top: number; width: number; height: number }): Electron.Display {
-    return screen.getDisplayMatching({
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.max(1, Math.round(rect.width)),
-      height: Math.max(1, Math.round(rect.height))
-    })
+    return displayOfRect(rect)
   }
 
   /** The screen she's on, so moving her to another monitor keeps her there */
@@ -455,9 +452,26 @@ export class WindowManager {
     return this.savedGamingPosition
   }
 
+  /**
+   * Where she watches a game from: another monitor than the game's, preferring her home monitor.
+   * Without a known game monitor, a fullscreen window in the foreground counts as the game.
+   */
+  private spectatorDisplay(gameDisplayId?: number): Electron.Display {
+    const mine = this.currentDisplay()
+    const fg = foregroundWatch.current()
+    const gameId = gameDisplayId ?? (fg?.fullscreen ? fg.displayId : undefined)
+    if (gameId === undefined || gameId !== mine.id) return mine
+    const others = screen.getAllDisplays().filter((d) => d.id !== gameId)
+    if (!others.length) return mine
+    const home = others.find((d) => d.id === consciousnessService.getCompanionDisplayId())
+    return home ?? others.find((d) => d.id === screen.getPrimaryDisplay().id) ?? others[0]
+  }
+
   public setGamingMode(
     enabled: boolean,
-    corner: 'bottom-right' | 'top-right' | 'bottom-left' | 'top-left' = 'top-left'
+    corner: 'bottom-right' | 'top-right' | 'bottom-left' | 'top-left' = 'top-left',
+    /** The monitor the game runs on, when the caller knows it */
+    gameDisplayId?: number
   ): void {
     this.isGamingMode = enabled
 
@@ -480,7 +494,7 @@ export class WindowManager {
 
       // Dock to position with ample vertical room for downward speech bubble
       // If the user already moved Capri in Gaming Mode, prioritize her saved position
-      const primaryDisplay = this.currentDisplay()
+      const primaryDisplay = this.savedGamingPosition ? this.currentDisplay() : this.spectatorDisplay(gameDisplayId)
       const workArea = primaryDisplay.workArea
       const width = 360
       const height = 540

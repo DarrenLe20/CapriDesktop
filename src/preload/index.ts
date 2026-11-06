@@ -346,7 +346,7 @@ const api = {
     }
   },
 
-  // Media Controls (Spotify)
+  // Media Controls (Apple Music, or whatever else is playing)
   media: {
     control: (action: 'play' | 'pause' | 'play_pause' | 'next' | 'prev'): Promise<{ success: boolean; output: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.MEDIA_CONTROL, action),
@@ -363,7 +363,7 @@ const api = {
   boredom: {
     getEnabled: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.BOREDOM_GET_ENABLED),
     setEnabled: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.BOREDOM_SET_ENABLED, enabled),
-    trigger: (category?: 'spotify' | 'youtube' | 'web_search'): Promise<boolean> =>
+    trigger: (category?: 'apple_music' | 'youtube' | 'web_search'): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.BOREDOM_TRIGGER, category)
   },
 

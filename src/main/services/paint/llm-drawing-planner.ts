@@ -417,6 +417,29 @@ Output ONLY the raw JSON object.`
       }
     }
 
+    // Before the apple: Apple Music's logo is a music note in a rounded square
+    if (/apple\s*music|itunes|music(?:al)?\s+note|nota\s+musical/i.test(combined)) {
+      return {
+        subject: 'apple music logo',
+        comment: 'La nota musical de Apple Music',
+        shapes: [
+          { type: 'line', x1: 30, y1: 18, x2: 70, y2: 18 },
+          { type: 'curve', p0: [70, 18], p1: [77, 18], p2: [82, 23], p3: [82, 30] },
+          { type: 'line', x1: 82, y1: 30, x2: 82, y2: 70 },
+          { type: 'curve', p0: [82, 70], p1: [82, 77], p2: [77, 82], p3: [70, 82] },
+          { type: 'line', x1: 70, y1: 82, x2: 30, y2: 82 },
+          { type: 'curve', p0: [30, 82], p1: [23, 82], p2: [18, 77], p3: [18, 70] },
+          { type: 'line', x1: 18, y1: 70, x2: 18, y2: 30 },
+          { type: 'curve', p0: [18, 30], p1: [18, 23], p2: [23, 18], p3: [30, 18] },
+          { type: 'line', x1: 41, y1: 35, x2: 41, y2: 64 },
+          { type: 'line', x1: 63, y1: 29, x2: 63, y2: 58 },
+          { type: 'polyline', points: [[41, 35], [63, 29], [63, 35], [41, 41]], closed: true },
+          { type: 'ellipse', cx: 36, cy: 64, rx: 6, ry: 4.5 },
+          { type: 'ellipse', cx: 58, cy: 58, rx: 6, ry: 4.5 }
+        ]
+      }
+    }
+
     if (/apple/i.test(combined)) {
       return {
         subject: 'apple logo',
@@ -472,19 +495,6 @@ Output ONLY the raw JSON object.`
           { type: 'curve', p0: [50, 58], p1: [56, 25], p2: [78, 25], p3: [80, 80] },
           { type: 'curve', p0: [26, 80], p1: [28, 33], p2: [42, 33], p3: [50, 68] },
           { type: 'curve', p0: [50, 68], p1: [58, 33], p2: [72, 33], p3: [74, 80] }
-        ]
-      }
-    }
-
-    if (/spotify/i.test(combined)) {
-      return {
-        subject: 'spotify logo',
-        comment: 'Las ondas sonoras de Spotify',
-        shapes: [
-          { type: 'circle', cx: 50, cy: 50, r: 38 },
-          { type: 'arc', cx: 48, cy: 44, rx: 24, ry: 10, startAngle: 200, endAngle: 340 },
-          { type: 'arc', cx: 48, cy: 52, rx: 20, ry: 8, startAngle: 200, endAngle: 340 },
-          { type: 'arc', cx: 48, cy: 60, rx: 16, ry: 6, startAngle: 200, endAngle: 340 }
         ]
       }
     }

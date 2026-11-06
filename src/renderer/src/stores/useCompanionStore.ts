@@ -32,6 +32,12 @@ interface CompanionState {
   isCatchGameActive: boolean
   catchGameTimeRemaining: number
   isTabMode: boolean
+  /** Hopping to another monitor: 'out' while she's glitched away */
+  hop?: 'out' | 'in'
+  /** Changes on every hop glitch */
+  hopId: number
+  /** She offered a game of tag: a click on her starts it */
+  offeringTag: boolean
   setEmotion: (emotion: CompanionEmotionState) => void
   setSpeech: (text: string | null, durationMs?: number) => void
   setRenderMode: (mode: CompanionRenderMode) => void
@@ -44,6 +50,9 @@ interface CompanionState {
     gameTimeRemaining?: number
     isTabMode?: boolean
     currentBehavior?: 'walking' | 'still' | 'tab'
+    hop?: 'out' | 'in'
+    hopId?: number
+    offeringTag?: boolean
   }) => void
 }
 
@@ -57,6 +66,9 @@ export const useCompanionStore = create<CompanionState>((set, get) => ({
   isCatchGameActive: false,
   catchGameTimeRemaining: 15,
   isTabMode: false,
+  hop: undefined,
+  hopId: 0,
+  offeringTag: false,
 
   setEmotion: (emotion) => set({ emotion }),
 
@@ -94,6 +106,9 @@ export const useCompanionStore = create<CompanionState>((set, get) => ({
       direction: status.direction,
       isCatchGameActive: !!status.isCatchGameActive,
       catchGameTimeRemaining: status.gameTimeRemaining ?? 15,
+      hop: status.hop,
+      offeringTag: !!status.offeringTag,
+      ...(typeof status.hopId === 'number' ? { hopId: status.hopId } : {}),
       ...(typeof status.isTabMode === 'boolean' ? { isTabMode: status.isTabMode } : {})
     })
 }))

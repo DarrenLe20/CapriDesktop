@@ -109,7 +109,7 @@ export const IPC_CHANNELS = {
   VOICE_GET_CONFIG: 'voice:get-config',
   VOICE_SET_CONFIG: 'voice:set-config',
 
-  // Media Controls (Spotify)
+  // Media controls (Apple Music, or whatever player Windows reports)
   MEDIA_CONTROL: 'media:control',
   MEDIA_GET_STATUS: 'media:getStatus',
 
@@ -154,6 +154,12 @@ export interface RoamingStatusPayload {
   gameTimeRemaining?: number
   isTabMode?: boolean
   currentBehavior?: 'walking' | 'still' | 'tab'
+  /** Hopping to another monitor: 'out' while she's glitched away, 'in' as she re-forms */
+  hop?: 'out' | 'in'
+  /** Goes up by one on every glitch, so the renderer replays the effect */
+  hopId?: number
+  /** She offered a game of tag: a click on her starts the chase */
+  offeringTag?: boolean
 }
 
 /** Capri's own local agent is the only engine */

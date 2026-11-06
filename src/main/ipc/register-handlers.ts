@@ -187,7 +187,7 @@ export function registerIpcHandlers(): void {
   // Autonomous Boredom Action (Trigger on-demand or test)
   ipcMain.handle(
     IPC_CHANNELS.BOREDOM_TRIGGER,
-    async (_event, category?: 'spotify' | 'youtube' | 'web_search') => {
+    async (_event, category?: 'apple_music' | 'youtube' | 'web_search') => {
       return await boredomService.triggerBoredomAction(category)
     }
   )
@@ -524,7 +524,7 @@ export function registerIpcHandlers(): void {
     return voiceService.setConfig(config)
   })
 
-  // Media Controls (Spotify)
+  // Media Controls (Apple Music, or whatever else is playing)
   ipcMain.handle(
     IPC_CHANNELS.MEDIA_CONTROL,
     async (_event, action: 'play' | 'pause' | 'play_pause' | 'next' | 'prev') => {

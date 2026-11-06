@@ -15,6 +15,7 @@ import { consciousnessService } from './consciousness-service'
 import { ollamaService } from './ollama-service'
 import { isLinux, isWindows, linuxForegroundWindow } from './platform'
 import { windowManager } from '../windows/window-manager'
+import { foregroundWatch } from './foreground-watch-service'
 import {
   detectGameName,
   fallbackGameComment,
@@ -99,7 +100,9 @@ export class GamePresenceService {
       // Engaged once per game: if the user turns Gaming Mode off, it stays off for this session
       const engaged = !windowManager.isGamingModeActive()
       console.log(`[GamePresence] Playing ${name}.`)
-      if (engaged) windowManager.setGamingMode(true)
+      // She watches from another monitor than the game's, when there is one
+      const fg = foregroundWatch.current()
+      if (engaged) windowManager.setGamingMode(true, undefined, fg?.pid === current.pid ? fg.displayId : undefined)
       this.game = { name, pid: current.pid, engagedGamingMode: engaged }
       this.nextCommentAt = Date.now() + FIRST_COMMENT_MS
       this.recent = []

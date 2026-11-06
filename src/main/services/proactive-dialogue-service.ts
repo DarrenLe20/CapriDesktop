@@ -4,6 +4,8 @@ import { scannerService } from './scanner-service'
 import { windowManager } from '../windows/window-manager'
 import { cyberpunkAdapter, lolLiveAdapter } from './game'
 import { gamePresenceService } from './game-presence-service'
+import { presenceService } from './presence-service'
+import { foregroundWatch } from './foreground-watch-service'
 
 interface ProactiveTopic {
   category: 'lore_and_gossip' | 'user_checkin' | 'teasing_and_banter' | 'music_and_gaming'
@@ -69,15 +71,15 @@ const PROACTIVE_TOPICS: ProactiveTopic[] = [
     category: 'music_and_gaming',
     es: [
       '¿Pinta meter unas partiditas o estás productivo hoy, choomba? Hace rato no entramos a la Grieta a reventar conos.',
-      'Si te pinta poner algo de música para levantar la tarde avisame, tengo el playlist de Night City listo para sonar en Spotify.',
+      'Si te pinta poner algo de música para levantar la tarde avisame, tengo el playlist de Night City listo para sonar en Apple Music.',
       '¿Qué onda, {name}? ¿Sale un LoL o nos quedamos explorando Night City un rato?',
-      'Ese silencio en tu escritorio da miedo... ¿le pedimos algo de synthwave pesado a Spotify a ver si levantamos la vibra?'
+      'Ese silencio en tu escritorio da miedo... ¿le pedimos algo de synthwave pesado a Apple Music a ver si levantamos la vibra?'
     ],
     en: [
       'Feel like queueing up a match or are we being productive today, choomba? Been a while since we ran down the Rift.',
-      'If you want some tunes to hype up the afternoon let me know, got the Night City playlist queued up on Spotify.',
+      'If you want some tunes to hype up the afternoon let me know, got the Night City playlist queued up on Apple Music.',
       'What is the move, {name}? Slicing some scrubs on League or cruising Night City for a bit?',
-      'This silence on your desk is deafening... want me to crank some heavy synthwave on Spotify to wake up the room?'
+      'This silence on your desk is deafening... want me to crank some heavy synthwave on Apple Music to wake up the room?'
     ]
   }
 ]
@@ -186,6 +188,11 @@ export class ProactiveDialogueService {
     // Check silence threshold
     const now = Date.now()
     if (now - this.lastSpokenTime < this.minSilenceThresholdMs) {
+      return false
+    }
+
+    // Nobody at the PC, or she just said something on her own (a greeting, a monitor hop): wait
+    if (presenceService.isAway() || presenceService.msSinceLastLine() < 60 * 1000 || foregroundWatch.isDoNotDisturb()) {
       return false
     }
 

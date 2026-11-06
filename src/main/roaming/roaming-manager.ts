@@ -8,6 +8,25 @@ import { agentManager } from '../agents/agent-manager'
 import { consciousnessService } from '../services/consciousness-service'
 import { IPC_CHANNELS, RoamingStatusPayload } from '../ipc/channels'
 import { findLinuxWindowedApp, isLinux, linuxWindowGeometry } from '../services/platform'
+import { displayById, displayOfRect, toDipRect } from '../services/screen-coords'
+import { presenceService } from '../services/presence-service'
+
+/** Lines she may say as she hops to another monitor (bubble only). English: the renderer translates them */
+const HOP_LINES_EN = ['Hmm, what is over there?', 'Hop!', 'Be right back. Other screen.', 'Ooh, more desktop.']
+/** When the window she sits on closes under her */
+const FALL_LINES_EN = ['Oopsies!', 'Hey, who pulled the floor?', 'Oh, nuts! Window gone.', 'Details! I meant to land like that.']
+
+const pick = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)]
+
+const MINUTE = 60 * 1000
+/** Looking up for satellites: at most once every two hours */
+const GAZE_GAP_MS = 120 * MINUTE
+/** Turning to look at the monitor the user went to */
+const GLANCE_GAP_MS = 45 * 1000
+const HOP_LINE_GAP_MS = 10 * MINUTE
+const FALL_LINE_GAP_MS = 20 * MINUTE
+/** How long her offer of tag waits for a click */
+const TAG_OFFER_MS = 20 * 1000
 
 export interface WindowedAppInfo {
   hwnd?: number | string
@@ -73,22 +92,6 @@ const TAB_QUOTES_ES = [
   'Descansando en tu ventana activa. Avisame cuando quieras hackear algo, {name}.'
 ]
 
-type WindowRect = { left: number; top: number; width: number; height: number }
-
-/**
- * The window scripts report real pixels on every monitor; Electron places her in its own units, which differ on
- * a monitor with another scale (a 150% laptop next to a 100% monitor, say)
- */
-function toDipRect(rect: WindowRect): WindowRect {
-  if (process.platform !== 'win32') return rect
-  try {
-    const dip = screen.screenToDipRect(null, { x: rect.left, y: rect.top, width: rect.width, height: rect.height })
-    return { left: Math.round(dip.x), top: Math.round(dip.y), width: Math.round(dip.width), height: Math.round(dip.height) }
-  } catch {
-    return rect
-  }
-}
-
 export class RoamingManager {
   private isRoaming = false
   private isPaused = false
@@ -110,11 +113,36 @@ export class RoamingManager {
   private isEyeMode = false
   private isSelfMoving = false
   private lastSelfMoveAt = 0
-  /** The monitor she's walking into, and how far above its taskbar she should land (null: she was in the air) */
-  private crossing: { to: number; floorGap: number | null } | null = null
+  /** Windows moves her itself when monitors change; those moves aren't the user dragging her */
+  private ignoreMovesUntil = 0
   private tabTrackTimer: NodeJS.Timeout | null = null
   private trackProcess: ChildProcess | null = null
   private linuxTrackTimer: NodeJS.Timeout | null = null
+
+  // Hopping between monitors: she glitches out, and back in on the other screen
+  private hopping = false
+  private hopPhase: 'out' | 'in' | undefined
+  private hopId = 0
+  private lastHopLineAt = 0
+  // Looking toward the monitor the user went to
+  private glanceToken = 0
+  private lastGlanceAt = 0
+  // Looking up for satellites
+  private gazeToken = 0
+  // The first look up can come half an hour after she starts
+  private lastGazeAt = Date.now() - GAZE_GAP_MS + 30 * MINUTE
+  // Walking over to the monitor the user is working on
+  private driftTarget: number | null = null
+  private driftUntil = 0
+  private glancing = false
+  private gazing = false
+  private hopToken = 0
+  // The monitor of the window she sits on, to notice it being dragged to another one
+  private perchDisplayId: number | null = null
+  private lastFallLineAt = 0
+  // A game of tag she offered, waiting for a click, and who to tell how a chase ended
+  private tagOffer: { timer: NodeJS.Timeout; onResult: (result: 'caught' | 'escaped' | 'ignored') => void } | null = null
+  private onCatchFinished: ((caught: boolean) => void) | null = null
 
   public setSelfMoving(val: boolean): void {
     this.isSelfMoving = val
@@ -126,7 +154,7 @@ export class RoamingManager {
       companionWin.on('moved', () => {
         // Crossing onto a monitor with another scale, Windows moves her again a moment after she moved herself.
         // Real drags arrive through notifyUserDrag anyway
-        if (!this.isSelfMoving && Date.now() - this.lastSelfMoveAt > 250) {
+        if (!this.isSelfMoving && Date.now() - this.lastSelfMoveAt > 250 && Date.now() > this.ignoreMovesUntil) {
           this.handleUserDrag()
         }
       })
@@ -146,7 +174,10 @@ export class RoamingManager {
       isCatchGameActive: this.isCatchGameActive,
       gameTimeRemaining: this.isCatchGameActive ? this.catchGameTimeRemaining : undefined,
       isTabMode: this.isTabMode,
-      currentBehavior: this.currentBehavior
+      currentBehavior: this.currentBehavior,
+      hop: this.hopPhase,
+      hopId: this.hopId,
+      offeringTag: !!this.tagOffer
     }
   }
 
@@ -202,7 +233,9 @@ export class RoamingManager {
       choices.push('walking')
     }
 
-    const nextBehavior = choices[Math.floor(Math.random() * choices.length)]
+    // On her way to the user's monitor she keeps walking (and gives up after a few minutes)
+    if (this.driftTarget !== null && Date.now() > this.driftUntil) this.driftTarget = null
+    const nextBehavior = this.driftTarget !== null ? 'walking' : choices[Math.floor(Math.random() * choices.length)]
     const delay = delayMs ?? this.getDurationForBehavior(this.currentBehavior)
 
     this.autonomousTimer = setTimeout(() => {
@@ -221,8 +254,14 @@ export class RoamingManager {
     }
   }
 
-  public transitionToBehavior(behavior: 'walking' | 'still' | 'tab'): void {
+  public transitionToBehavior(behavior: 'walking' | 'still' | 'tab', pose?: 'perch' | 'front', onDisplay?: number): void {
     if (this.isEyeMode || this.isCatchGameActive) return
+
+    // A new behavior ends a glance or a look at the sky
+    this.glanceToken++
+    this.glancing = false
+    this.gazeToken++
+    this.gazing = false
 
     if (behavior !== 'tab') {
       this.stopTabTracking()
@@ -239,9 +278,9 @@ export class RoamingManager {
       }
 
       // User requirement: 50% probability of sitting in front pose (center of screen) or perch pose (on window tab)
-      this.currentSittingPose = Math.random() < 0.5 ? 'front' : 'perch'
+      this.currentSittingPose = pose ?? (Math.random() < 0.5 ? 'front' : 'perch')
 
-      this.findWindowedApp().then((app) => {
+      this.findWindowedApp(this.perchPreference(onDisplay)).then((app) => {
         if (this.currentBehavior !== 'tab' || this.isEyeMode || this.isPaused) return
 
         const isEs = consciousnessService.getPreferredLanguage() === 'es'
@@ -255,12 +294,11 @@ export class RoamingManager {
           const quote = tabQuotes[Math.floor(Math.random() * tabQuotes.length)]
           agentManager.setCompanionSpeech(quote, 4500, true)
         } else if (app) {
-          windowManager.setTabMode(true, app, false, 'perch')
-          this.isTabMode = true
-          this.startTabTracking(app)
-
-          const quote = tabQuotes[Math.floor(Math.random() * tabQuotes.length)]
-          agentManager.setCompanionSpeech(quote, 4500, true)
+          // A window on another monitor: she glitches over to it instead of just appearing there
+          this.perchOn(app, () => {
+            const quote = tabQuotes[Math.floor(Math.random() * tabQuotes.length)]
+            agentManager.setCompanionSpeech(quote, 4500, true)
+          })
         } else {
           // No windowed app open, sit comfortably right on desktop
           this.isTabMode = false
@@ -272,8 +310,8 @@ export class RoamingManager {
     } else if (behavior === 'walking') {
       this.isTabMode = false
       this.isRoaming = true
-      // 50% chance to flip direction
-      if (Math.random() > 0.5) {
+      // 50% chance to flip direction, unless she's on her way somewhere
+      if (this.driftTarget === null && Math.random() > 0.5) {
         this.direction = this.direction === 'right' ? 'left' : 'right'
       }
 
@@ -288,7 +326,12 @@ export class RoamingManager {
         this.loopTimer = null
       }
 
-      agentManager.setCompanionState('standing') // capri parada quieta
+      // Now and then she stops to look up for satellites, her one quiet habit
+      if (Date.now() - this.lastGazeAt > GAZE_GAP_MS && Math.random() < 0.15 && presenceService.canActNow('glance')) {
+        this.gazeUp()
+      } else {
+        agentManager.setCompanionState('standing') // capri parada quieta
+      }
     }
 
     this.broadcastStatus()
@@ -306,15 +349,13 @@ export class RoamingManager {
     // 50% probability between front-facing (center screen) and perch (tab corner)
     this.currentSittingPose = Math.random() < 0.5 ? 'front' : 'perch'
 
-    const app = await this.findWindowedApp()
+    const app = await this.findWindowedApp(this.perchPreference())
     if (this.currentSittingPose === 'front') {
       windowManager.setTabMode(true, app || undefined, false, 'front')
       this.isTabMode = true
       this.startTabTracking()
     } else if (app) {
-      windowManager.setTabMode(true, app, false, 'perch')
-      this.isTabMode = true
-      this.startTabTracking(app)
+      this.perchOn(app)
     } else {
       this.isTabMode = false
       agentManager.setCompanionState('idle')
@@ -354,8 +395,7 @@ export class RoamingManager {
       asking = false
       if (this.linuxTrackTimer !== timer) return
       if (!geometry) {
-        this.stopTabTracking()
-        if (this.isTabMode && this.currentBehavior === 'tab') this.transitionToBehavior('still')
+        this.fallFromPerch()
         return
       }
       const key = JSON.stringify(geometry)
@@ -363,6 +403,7 @@ export class RoamingManager {
       last = key
       this.markSelfMove()
       windowManager.updateTabWindowPosition(geometry, 'perch')
+      this.noticePerchMove(geometry)
     }, 120)
     this.linuxTrackTimer = timer
   }
@@ -372,8 +413,10 @@ export class RoamingManager {
 
     if (this.currentSittingPose === 'front') {
       // Front sitting pose stays stable in the middle of the screen
+      this.perchDisplayId = null
       return
     }
+    this.perchDisplayId = app ? displayOfRect(app).id : null
 
     if (app && app.hwnd && isLinux) {
       this.startLinuxTabTracking(String(app.hwnd))
@@ -402,17 +445,17 @@ export class RoamingManager {
               const trimmed = line.trim()
               if (!trimmed) continue
               if (trimmed === 'CLOSED') {
-                this.stopTabTracking()
-                if (this.isTabMode && this.currentBehavior === 'tab') {
-                  this.transitionToBehavior('still')
-                }
+                // Closed or minimized under her
+                this.fallFromPerch()
                 return
               }
               const parts = trimmed.split(',').map((p) => parseInt(p, 10))
               if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
                 const [left, top, width, height] = parts
+                const rect = toDipRect({ left, top, width, height })
                 this.markSelfMove()
-                windowManager.updateTabWindowPosition(toDipRect({ left, top, width, height }), 'perch')
+                windowManager.updateTabWindowPosition(rect, 'perch')
+                this.noticePerchMove(rect)
               }
             }
           })
@@ -444,7 +487,7 @@ export class RoamingManager {
       }
 
       if (!this.trackProcess && !this.linuxTrackTimer) {
-        const found = await this.findWindowedApp()
+        const found = await this.findWindowedApp(this.perchPreference())
         if (found && this.isTabMode && this.currentBehavior === 'tab') {
           this.startTabTracking(found)
         } else if (!found && this.isTabMode) {
@@ -454,45 +497,67 @@ export class RoamingManager {
     }, 4000)
   }
 
-  public async findWindowedApp(): Promise<WindowedAppInfo | null> {
+  /**
+   * Where she'd rather sit: a window on her own monitor (or the one she walked over to). Another monitor's window
+   * only if hers has none and she may change monitors; the trips to the user's monitor are rationed elsewhere
+   */
+  private perchPreference(prefer?: number): { prefer?: number; only?: number } {
+    const win = windowManager.getCompanionWindow()
+    const mine = win && !win.isDestroyed() ? screen.getDisplayMatching(win.getBounds()).id : undefined
+    if (!consciousnessService.isMonitorWanderEnabled()) return { only: mine }
+    return { prefer: prefer ?? mine }
+  }
+
+  public async findWindowedApp(where: { prefer?: number; only?: number } = {}): Promise<WindowedAppInfo | null> {
+    const apps = await this.listWindowedApps()
+    const onDisplay = (app: WindowedAppInfo, id: number): boolean => displayOfRect(app).id === id
+    if (where.only !== undefined) return apps.find((a) => onDisplay(a, where.only!)) ?? null
+    if (where.prefer !== undefined) return apps.find((a) => onDisplay(a, where.prefer!)) ?? apps[0] ?? null
+    return apps[0] ?? null
+  }
+
+  /** Windows she could sit on, browsers first, then front to back */
+  private async listWindowedApps(): Promise<WindowedAppInfo[]> {
     try {
       if (isLinux) {
         const { width, height } = screen.getPrimaryDisplay().size
-        return await findLinuxWindowedApp(width, height)
+        const app = await findLinuxWindowedApp(width, height)
+        return app ? [app] : []
       }
 
       const windowedAppsScript = scriptPath('get_windowed_apps.ps1')
-      if (!fs.existsSync(windowedAppsScript)) return null
+      if (!fs.existsSync(windowedAppsScript)) return []
 
       return await new Promise((resolve) => {
         exec(`powershell -ExecutionPolicy Bypass -File "${windowedAppsScript}"`, { timeout: 3500 }, (err, stdout) => {
           if (err || !stdout) {
-            resolve(null)
+            resolve([])
             return
           }
           try {
             const trimmed = stdout.trim()
             if (!trimmed || trimmed === '[]') {
-              resolve(null)
+              resolve([])
               return
             }
             const apps = JSON.parse(trimmed)
-            if (Array.isArray(apps) && apps.length > 0) {
-              const app = apps[0]
-              resolve({
-                hwnd: app.Hwnd,
-                title: app.Title,
-                ...toDipRect({ left: app.Left, top: app.Top, width: app.Width, height: app.Height }),
-                isBrowser: !!app.IsBrowser
-              })
+            if (Array.isArray(apps)) {
+              resolve(
+                apps.map((app) => ({
+                  hwnd: app.Hwnd,
+                  title: app.Title,
+                  ...toDipRect({ left: app.Left, top: app.Top, width: app.Width, height: app.Height }),
+                  isBrowser: !!app.IsBrowser
+                }))
+              )
               return
             }
           } catch {}
-          resolve(null)
+          resolve([])
         })
       })
     } catch {
-      return null
+      return []
     }
   }
 
@@ -558,6 +623,8 @@ export class RoamingManager {
   public handleUserDrag(): void {
     if (this.isEyeMode || windowManager.isGamingModeActive()) return
     this.stopTabTracking()
+    // The user has her now: no hop, glance, look up or trip to another monitor finishes
+    this.cancelSelfDirected()
     // If user dragged window, pause autonomous transitions for 10 seconds
     if (this.autonomousTimer) clearTimeout(this.autonomousTimer)
     if (this.loopTimer) {
@@ -587,12 +654,31 @@ export class RoamingManager {
   }
 
   // --- "Catch Capri" Desktop Mini-Game ---
-  public startCatchGame(): void {
+  /**
+   * She offers a game of tag instead of acting on her boredom: click her within 20 seconds to play.
+   * Ignoring her costs nothing. The result says whether the user caught her, she escaped, or nobody played.
+   */
+  public offerTag(onResult: (result: 'caught' | 'escaped' | 'ignored') => void): boolean {
+    if (this.isEyeMode || this.isCatchGameActive || this.isPaused || this.tagOffer || windowManager.isGamingModeActive()) return false
+    const timer = setTimeout(() => {
+      if (this.tagOffer?.timer !== timer) return
+      this.tagOffer = null
+      this.broadcastStatus()
+      onResult('ignored')
+    }, TAG_OFFER_MS)
+    this.tagOffer = { timer, onResult }
+    this.broadcastStatus()
+    return true
+  }
+
+  public startCatchGame(onFinished?: (caught: boolean) => void): void {
     const companionWin = windowManager.getCompanionWindow()
     if (!companionWin) return
 
+    this.onCatchFinished = onFinished ?? null
     windowManager.hideDeck()
     this.clearTimers()
+    this.cancelSelfDirected()
 
     this.isRoaming = true
     this.isPaused = false
@@ -629,7 +715,15 @@ export class RoamingManager {
     }, 1000)
   }
 
+  /** A click on her during the catch game, or on her offer of tag (which starts the chase) */
   public handleCatchSuccess(): void {
+    if (this.tagOffer) {
+      const { timer, onResult } = this.tagOffer
+      clearTimeout(timer)
+      this.tagOffer = null
+      this.startCatchGame((caught) => onResult(caught ? 'caught' : 'escaped'))
+      return
+    }
     if (!this.isCatchGameActive) return
     this.finishCatchGame(true)
   }
@@ -642,9 +736,15 @@ export class RoamingManager {
 
     this.isCatchGameActive = false
     this.speed = 2.2
+    const onFinished = this.onCatchFinished
+    this.onCatchFinished = null
 
     const isEs = consciousnessService.getPreferredLanguage() === 'es'
-    if (success) {
+    if (onFinished) {
+      // Whoever started this chase says what happens next
+      agentManager.setCompanionState(success ? 'happy' : 'curious')
+      onFinished(success)
+    } else if (success) {
       agentManager.setCompanionState('happy')
       agentManager.setCompanionSpeech(
         isEs
@@ -673,7 +773,6 @@ export class RoamingManager {
   // --- Main Walking Loop (Smooth Movement along Desktop) ---
   private startLoop(): void {
     if (this.loopTimer) clearInterval(this.loopTimer)
-    this.crossing = null
 
     this.loopTimer = setInterval(() => {
       if (this.isEyeMode || !this.isRoaming || this.isPaused || this.currentBehavior !== 'walking' || this.isTabMode) {
@@ -683,6 +782,8 @@ export class RoamingManager {
         }
         return
       }
+      // Mid-hop, or stopped for a moment to look somewhere
+      if (this.hopping || this.glancing) return
 
       const companionWin = windowManager.getCompanionWindow()
       if (!companionWin || companionWin.isDestroyed() || !companionWin.isVisible()) return
@@ -693,34 +794,36 @@ export class RoamingManager {
         const display = screen.getDisplayMatching(bounds)
         const { workArea } = display
 
+        // She made it to the monitor she was heading for
+        if (this.driftTarget === display.id) this.arrive()
+
         const minX = workArea.x + 10
         const maxX = workArea.x + workArea.width - bounds.width - 10
 
         let newX = bounds.x + (this.direction === 'right' ? this.speed : -this.speed)
-        let target = display
 
-        // Only the edge she walks towards counts: halfway into the next monitor she's still behind its other edge
+        // Only the edge she walks towards counts: placed half off a screen, she just walks back in
         const atEdge = this.direction === 'right' ? newX >= maxX : newX <= minX
         if (atEdge) {
-          const next = consciousnessService.isMonitorWanderEnabled() ? this.neighborDisplay(display, this.direction, bounds) : null
+          const next = this.hopTarget(display, bounds)
           if (next) {
-            target = next
-          } else if (this.direction === 'right') {
+            this.hopAcross(display, next, this.direction)
+            return
+          }
+          if (this.direction === 'right') {
             newX = maxX
             this.direction = 'left'
-            this.broadcastStatus()
           } else {
             newX = minX
             this.direction = 'right'
-            this.broadcastStatus()
           }
+          this.broadcastStatus()
         }
 
-        // Keeps her height (in the air or on the floor, as the user placed her) unless the next monitor needs another one
-        const newY = this.walkingY(bounds, display, target)
+        // Smooth horizontal roaming, preserving current Y height (walks in the air or floor as placed by user)
         this.markSelfMove()
-        // setBounds keeps her size when the other monitor has another scale
-        companionWin.setBounds({ x: Math.round(newX), y: Math.round(newY), width: bounds.width, height: bounds.height })
+        // setBounds keeps her size on a monitor with another scale
+        companionWin.setBounds({ x: Math.round(newX), y: bounds.y, width: bounds.width, height: bounds.height })
       } catch {
         // Safe catch if window is being moved or recreated
       }
@@ -752,31 +855,287 @@ export class RoamingManager {
     return best
   }
 
-  /** Her height for the next step: she stays where she is, and only climbs or drops to fit the monitor she's walking into */
-  private walkingY(bounds: Electron.Rectangle, from: Electron.Display, to: Electron.Display): number {
-    if (to.id !== from.id && this.crossing?.to !== to.id) {
-      // Measured once, as she starts crossing: if she was walking on the floor she lands on the floor of the
-      // next monitor, even if it's taller or lower
-      const gap = from.workArea.y + from.workArea.height - (bounds.y + bounds.height)
-      this.crossing = { to: to.id, floorGap: gap >= -5 && gap <= 60 ? Math.max(0, gap) : null }
-    } else if (to.id === from.id && this.crossing?.to !== to.id) {
-      this.crossing = null
-    }
-
+  /** Where she lands on the next monitor: on its floor if she was on the floor, otherwise at the same height (kept on screen) */
+  private landingY(bounds: Electron.Rectangle, from: Electron.Display, to: Electron.Display): number {
     const wa = to.workArea
     const top = wa.y
     const bottom = wa.y + wa.height - bounds.height
-    let targetY = Math.min(bottom, Math.max(top, bounds.y))
-    if (this.crossing?.floorGap != null) targetY = Math.max(top, bottom - this.crossing.floorGap)
+    const gap = from.workArea.y + from.workArea.height - (bounds.y + bounds.height)
+    if (gap >= -5 && gap <= 60) return Math.max(top, bottom - Math.max(0, gap))
+    return Math.min(bottom, Math.max(top, bounds.y))
+  }
 
-    const dy = targetY - bounds.y
-    // Landed: from here on she walks at whatever height she has
-    if (to.id === from.id && Math.abs(dy) < 1) this.crossing = null
-    return bounds.y + Math.max(-12, Math.min(12, dy))
+  /** The monitor she may hop to from this edge, if any: beside this one, walking between monitors on, nothing fullscreen there */
+  private hopTarget(display: Electron.Display, bounds: Electron.Rectangle): Electron.Display | null {
+    if (!consciousnessService.isMonitorWanderEnabled()) return null
+    const next = this.neighborDisplay(display, this.direction, bounds)
+    if (!next || !presenceService.canActNow('move', next.id)) return null
+    return next
+  }
+
+  private glitch(phase: 'out' | 'in'): void {
+    this.hopPhase = phase
+    this.hopId++
+    this.broadcastStatus()
+  }
+
+  /** At the edge of a monitor she glitches out and re-forms a little way into the next one */
+  private hopAcross(from: Electron.Display, next: Electron.Display, side: 'left' | 'right'): void {
+    this.hopping = true
+    const token = ++this.hopToken
+    this.glitch('out')
+    // Now and then a little exit line, so a sudden switch of screens doesn't surprise anyone
+    if (Date.now() - this.lastHopLineAt > HOP_LINE_GAP_MS && Math.random() < 0.25 && presenceService.canActNow('bubble')) {
+      this.lastHopLineAt = Date.now()
+      presenceService.noteLine()
+      agentManager.setCompanionSpeech(pick(HOP_LINES_EN), 2200, false)
+    }
+    setTimeout(() => {
+      const win = windowManager.getCompanionWindow()
+      if (token !== this.hopToken || !win || win.isDestroyed()) return
+      const b = win.getBounds()
+      const wa = next.workArea
+      const x = side === 'right' ? wa.x + 10 : wa.x + wa.width - b.width - 10
+      this.markSelfMove()
+      win.setBounds({ x: Math.round(x), y: Math.round(this.landingY(b, from, next)), width: b.width, height: b.height })
+      this.glitch('in')
+      // A quick look around the new screen, then she walks on
+      const lookAround = this.currentBehavior === 'walking' && !this.isCatchGameActive
+      if (lookAround) agentManager.setCompanionState('curious')
+      setTimeout(
+        () => {
+          if (token !== this.hopToken) return
+          this.hopping = false
+          if (lookAround && this.currentBehavior === 'walking' && !this.isTabMode) agentManager.setCompanionState('walking')
+        },
+        lookAround ? 1100 : 120
+      )
+    }, 320)
+  }
+
+  /** Glitches her straight over to a monitor (hers was unplugged, the user came back on another one, going home) */
+  public hopToDisplay(displayId: number): boolean {
+    const target = displayById(displayId)
+    const win = windowManager.getCompanionWindow()
+    if (!target || !win || win.isDestroyed() || this.isEyeMode || this.isCatchGameActive || windowManager.isGamingModeActive()) return false
+    if (screen.getDisplayMatching(win.getBounds()).id === displayId) return false
+    this.cancelSelfDirected()
+    if (this.isTabMode || this.currentBehavior === 'tab') {
+      this.stopTabTracking()
+      this.isTabMode = false
+      this.currentBehavior = 'still'
+      windowManager.setTabMode(false, undefined, true)
+    }
+    this.hopping = true
+    const token = ++this.hopToken
+    this.glitch('out')
+    setTimeout(() => {
+      if (token !== this.hopToken) return
+      this.markSelfMove()
+      windowManager.moveCompanionToDisplay(displayId, false)
+      this.glitch('in')
+      this.hopping = false
+      this.broadcastStatus()
+    }, 320)
+    return true
+  }
+
+  /** Sits on a window, glitching over first if it's on another monitor */
+  private perchOn(app: WindowedAppInfo, then?: () => void): void {
+    const win = windowManager.getCompanionWindow()
+    const sit = (): void => {
+      if (this.currentBehavior !== 'tab' || this.isEyeMode) return
+      this.markSelfMove()
+      windowManager.setTabMode(true, app, false, 'perch')
+      this.isTabMode = true
+      this.startTabTracking(app)
+      then?.()
+      this.broadcastStatus()
+    }
+    const elsewhere = win && !win.isDestroyed() && screen.getDisplayMatching(win.getBounds()).id !== displayOfRect(app).id
+    if (!elsewhere) return sit()
+    this.hopping = true
+    const token = ++this.hopToken
+    this.glitch('out')
+    setTimeout(() => {
+      if (token !== this.hopToken) return
+      sit()
+      this.glitch('in')
+      this.hopping = false
+    }, 320)
+  }
+
+  /** Turns to look at the monitor the user just went to, for a few seconds */
+  public glanceAt(displayId: number): void {
+    if (this.isEyeMode || this.isCatchGameActive || this.isTabMode || this.isPaused || this.hopping || this.glancing || this.gazing) return
+    if (this.currentBehavior === 'tab' || Date.now() - this.lastGlanceAt < GLANCE_GAP_MS) return
+    if (!presenceService.canActNow('glance')) return
+    const win = windowManager.getCompanionWindow()
+    const target = displayById(displayId)
+    if (!win || win.isDestroyed() || !target) return
+    const b = win.getBounds()
+    if (screen.getDisplayMatching(b).id === displayId) return
+
+    this.lastGlanceAt = Date.now()
+    const towards = target.bounds.x + target.bounds.width / 2 > b.x + b.width / 2 ? 'right' : 'left'
+    this.direction = towards
+    this.glancing = true
+    const token = ++this.glanceToken
+    agentManager.setCompanionState('curious')
+    this.broadcastStatus()
+    setTimeout(
+      () => {
+        if (token !== this.glanceToken) return
+        this.glancing = false
+        if (this.isTabMode || this.isEyeMode || this.isCatchGameActive) return
+        agentManager.setCompanionState(this.currentBehavior === 'walking' ? 'walking' : 'standing')
+      },
+      2000 + Math.random() * 4000
+    )
+  }
+
+  /** Walks over to the monitor the user has been working on, hopping the edges on the way. Side-by-side monitors only */
+  public driftTo(displayId: number): boolean {
+    if (this.isEyeMode || this.isCatchGameActive || this.isPaused || this.hopping || this.driftTarget !== null) return false
+    if (!consciousnessService.isMonitorWanderEnabled() || !presenceService.canActNow('move', displayId)) return false
+    const win = windowManager.getCompanionWindow()
+    const target = displayById(displayId)
+    if (!win || win.isDestroyed() || !target) return false
+    const b = win.getBounds()
+    const here = screen.getDisplayMatching(b)
+    if (here.id === displayId) return false
+
+    const side = target.bounds.x > here.bounds.x ? 'right' : 'left'
+    // Follow the monitors beside each other in that direction until the target turns up
+    let step: Electron.Display | null = here
+    for (let i = 0; i < 4 && step && step.id !== displayId; i++) step = this.neighborDisplay(step, side, b)
+    if (!step || step.id !== displayId) return false
+
+    this.driftTarget = displayId
+    this.driftUntil = Date.now() + 4 * MINUTE
+    if (this.isTabMode || this.currentBehavior === 'tab') {
+      this.stopTabTracking()
+      this.isTabMode = false
+      windowManager.setTabMode(false, undefined, true)
+    }
+    this.direction = side
+    this.transitionToBehavior('walking')
+    return true
+  }
+
+  public isDrifting(): boolean {
+    return this.driftTarget !== null
+  }
+
+  /** On the user's monitor: she settles on the edge of a window there */
+  private arrive(): void {
+    const here = this.driftTarget ?? undefined
+    this.driftTarget = null
+    if (this.autonomousTimer) clearTimeout(this.autonomousTimer)
+    this.autonomousTimer = setTimeout(() => {
+      if (this.currentBehavior === 'walking' && !this.isEyeMode && !this.isCatchGameActive && !this.isPaused) this.transitionToBehavior('tab', 'perch', here)
+    }, 1500 + Math.random() * 2500)
+  }
+
+  /** Looks up toward the top of the screen for a few seconds, for satellites. Silent */
+  private gazeUp(): void {
+    this.lastGazeAt = Date.now()
+    this.gazing = true
+    const token = ++this.gazeToken
+    agentManager.setCompanionState('thinking')
+    setTimeout(
+      () => {
+        if (token !== this.gazeToken) return
+        this.gazing = false
+        if (this.currentBehavior === 'still' && !this.isTabMode && !this.isEyeMode) agentManager.setCompanionState('standing')
+      },
+      5000 + Math.random() * 3000
+    )
+  }
+
+  /** The window she sits on was dragged to another monitor: she enjoys the ride */
+  private noticePerchMove(rect: { left: number; top: number; width: number; height: number }): void {
+    const id = displayOfRect(rect).id
+    if (this.perchDisplayId !== null && id !== this.perchDisplayId && this.isTabMode && this.currentSittingPose === 'perch') {
+      agentManager.setCompanionState('happy')
+      setTimeout(() => {
+        if (this.isTabMode && this.currentBehavior === 'tab') agentManager.setCompanionState('idle')
+      }, 1500)
+    }
+    this.perchDisplayId = id
+  }
+
+  /** The window she sat on closed (or was minimized) under her: she drops to the floor */
+  private fallFromPerch(): void {
+    this.stopTabTracking()
+    this.perchDisplayId = null
+    if (!this.isTabMode || this.currentBehavior !== 'tab') return
+    this.isTabMode = false
+    this.currentBehavior = 'still'
+    if (this.autonomousTimer) clearTimeout(this.autonomousTimer)
+
+    // Back to her standing size, where she was, then the scare and the drop
+    this.markSelfMove()
+    windowManager.setTabMode(false, undefined, true)
+    agentManager.setCompanionState('asustada')
+    if (Date.now() - this.lastFallLineAt > FALL_LINE_GAP_MS && presenceService.canActNow('bubble')) {
+      // Out loud only if she's been quiet for a while
+      const loud = presenceService.msSinceLastLine() > FALL_LINE_GAP_MS && presenceService.canActNow('speak')
+      this.lastFallLineAt = Date.now()
+      presenceService.noteLine()
+      agentManager.setCompanionSpeech(pick(FALL_LINES_EN), 3000, loud)
+    }
+    this.broadcastStatus()
+
+    const win = windowManager.getCompanionWindow()
+    // Back on her feet (which also schedules what she does next)
+    const land = (): void => {
+      setTimeout(() => {
+        if (this.currentBehavior === 'still' && !this.isTabMode && !this.isEyeMode && !this.isPaused) this.transitionToBehavior('still')
+      }, 900)
+    }
+    if (!win || win.isDestroyed()) return land()
+    const start = win.getBounds()
+    const wa = screen.getDisplayMatching(start).workArea
+    const floor = wa.y + wa.height - start.height - 20
+    if (start.y >= floor - 4) return land()
+    let y = start.y
+    let speed = 0
+    const timer = setInterval(() => {
+      if (win.isDestroyed() || this.isTabMode) {
+        clearInterval(timer)
+        return
+      }
+      speed += 2.5
+      y = Math.min(floor, y + speed)
+      this.markSelfMove()
+      const b = win.getBounds()
+      win.setBounds({ x: b.x, y: Math.round(y), width: b.width, height: b.height })
+      if (y >= floor) {
+        clearInterval(timer)
+        land()
+      }
+    }, 16)
+  }
+
+  /** Stops whatever she was doing on her own: a hop, a glance, a look up, a trip to another monitor */
+  private cancelSelfDirected(): void {
+    this.hopToken++
+    this.hopping = false
+    if (this.hopPhase === 'out') this.glitch('in')
+    this.glanceToken++
+    this.glancing = false
+    this.gazeToken++
+    this.gazing = false
+    this.driftTarget = null
+  }
+
+  public ignoreMovesFor(ms: number): void {
+    this.ignoreMovesUntil = Math.max(this.ignoreMovesUntil, Date.now() + ms)
   }
 
   /** Her own moves aren't a user dragging her */
-  private markSelfMove(): void {
+  public markSelfMove(): void {
     this.isSelfMoving = true
     this.lastSelfMoveAt = Date.now()
     setImmediate(() => {

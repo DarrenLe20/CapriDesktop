@@ -4,7 +4,7 @@
   <img src="src/renderer/src/assets/capri/walking/walking.gif" alt="Capri walking" width="260">
 </p>
 
-**Capri Desktop** is a cyberpunk desktop companion for Windows built with **Electron**, **Vite**, **React**, **TypeScript** and **TailwindCSS**. It puts **Capri**, an animated netrunner inspired by *Cyberpunk: Edgerunners*, on your desktop: she walks around your screen, talks to you with a neural voice, listens to you, controls Spotify and your apps, comments on your **League of Legends** and **Cyberpunk 2077** matches in real time, runs voice macros, builds small coding projects for you, and even draws in Paint. Everything AI-related runs **locally** (Ollama + Whisper).
+**Capri Desktop** is a cyberpunk desktop companion for Windows built with **Electron**, **Vite**, **React**, **TypeScript** and **TailwindCSS**. It puts **Capri**, an animated netrunner inspired by *Cyberpunk: Edgerunners*, on your desktop: she walks around your screen, talks to you with a neural voice, listens to you, plays your music on Apple Music, controls your apps, comments on your **League of Legends** and **Cyberpunk 2077** matches in real time, runs voice macros, builds small coding projects for you, and even draws in Paint. Everything AI-related runs **locally** (Ollama + Whisper).
 
 ---
 
@@ -93,7 +93,7 @@ Press the **Right arrow (→)** and Capri listens all the time, but **only answe
 │ ├─ Voice macros                                             │
 │ ├─ Coding agent ("build me a landing page")                 │
 │ ├─ Language switching                                       │
-│ ├─ Spotify / YouTube / web search                           │
+│ ├─ Apple Music / YouTube / web search                       │
 │ ├─ Screen context (what you're watching / listening to)     │
 │ ├─ Paint drawing (LLM-planned)                              │
 │ ├─ League of Legends (LCU + Live Client Data API)           │
@@ -105,7 +105,7 @@ Press the **Right arrow (→)** and Capri listens all the time, but **only answe
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ 4. TOOLS (ToolExecutor / Win32)                             │
-│    paint_drawer.ps1 · media_controller.ps1 · LCU REST API · │
+│    paint_drawer.ps1 · apple_music.ps1 · LCU REST API ·      │
 │    Cyberpunk telemetry server (port 2077) · files / shell   │
 └──────────────────────────────┬──────────────────────────────┘
                                ▼
@@ -139,7 +139,7 @@ Press the **Right arrow (→)** and Capri listens all the time, but **only answe
 | **Tool Executor** | `src/main/agents/tools/tool-executor.ts` | Launch/close apps, files, shell commands, media keys, web search. |
 | **Voice Service** | `src/main/services/voice-service.ts` | Runs the Python voice engine (TTS, STT worker, translation for spoken language). |
 | **Python voice engine** | `scripts/capri_voice.py` | `edge-tts` / Fish Audio / ElevenLabs TTS, faster-whisper STT and FFmpeg filters. |
-| **Media controller** | `scripts/media_controller.ps1` | Native Win32 (`PostMessage`, `WM_APPCOMMAND`) Spotify control in the background. |
+| **Apple Music** | `src/main/services/apple-music-service.ts`, `scripts/apple_music.ps1` | Finds songs with the iTunes Search API, opens them in Apple Music for Windows and starts them through UI Automation. Play, pause and skip use the Windows media session, so they work with any player. |
 | **Consciousness Service** | `src/main/services/consciousness-service.ts` | Persistent memory: boots/shutdowns, user name, language settings, learned drawings. |
 | **Roaming Manager** | `src/main/roaming/roaming-manager.ts` | Capri walking around the screen and perching on browser tabs. |
 | **Renderer** | `src/renderer/src/` | React UI: animated sprites, speech bubble, Dev Deck, code editor, onboarding wizard. |
@@ -221,7 +221,7 @@ The drawing, League of Legends and Cyberpunk 2077 commands are in [section 8](#8
 ### Voice macros
 | Command | Action |
 | :--- | :--- |
-| `when I say "it's game time", open League, play phonk on Spotify and turn on game mode` / `cuando yo diga "its game time", abrí el lol...` | Creates a macro. The local LLM turns the sentence into actions: open/close apps, Spotify, URLs, media controls, game mode, say something, wait, or run a command. |
+| `when I say "it's game time", open League, play phonk on Apple Music and turn on game mode` / `cuando yo diga "its game time", abrí el lol...` | Creates a macro. The local LLM turns the sentence into actions: open/close apps, Apple Music songs, URLs, media controls, game mode, say something, wait, or run a command. |
 | `it's game time` | Runs the macro (tolerates Whisper variations like *"Capri, it's game time!"*). |
 | `list macros` / `mis macros` | Lists saved macros. |
 | `delete the "it's game time" macro` / `borrá el macro its game time` | Deletes a macro. |
@@ -236,11 +236,11 @@ The drawing, League of Legends and Cyberpunk 2077 commands are in [section 8](#8
 - Checks for missing referenced files, incomplete HTML, JavaScript syntax (`node --check`) and unbalanced CSS braces.
 - Projects are created in a new Desktop folder; it can't write outside that folder and blocks destructive commands.
 
-### Music and Spotify
+### Music and Apple Music
 | Command | Action |
 | :--- | :--- |
-| `play bohemian rhapsody on spotify` / `pon bohemian rhapsody en spotify` | Opens Spotify if needed, searches the song and plays it. |
-| `skip song` / `cambia la canción` | Next track. |
+| `play bohemian rhapsody` / `pon bohemian rhapsody en apple music` | Finds the song, opens it in Apple Music (starting the app if needed) and plays it. Without the app, it opens the song on the Apple Music website. |
+| `skip song` / `cambia la canción` | Next track (Apple Music, or whatever else is playing). |
 | `previous track` / `canción anterior` | Previous track. |
 | `pause the music` / `pausa la música` | Pause. |
 | `resume the music` / `play` | Resume. |
@@ -361,7 +361,7 @@ Capri polls Riot's official local API (`https://127.0.0.1:2999/liveclientdata/al
 | **LoL champion select** | Standard user | Reads `LeagueClientUx.exe` command line for the local token and port | `LeagueClientUx.exe` | Local HTTPS to the LCU port | Standard champion-select actions only. |
 | **LoL in-game** | Standard user | Riot's official Live Client Data API | `League of Legends.exe` | Local HTTPS `127.0.0.1:2999` | Read-only official API, no memory access. |
 | **Cyberpunk telemetry** | Standard user | Local TCP listener | Capri + CET Lua mod | `127.0.0.1:2077` | Listens on localhost only. |
-| **Spotify control** | Standard user | Win32 `PostMessage` with `WM_APPCOMMAND` | `Spotify.exe`, `powershell.exe` | None | No code injection; standard media commands. |
+| **Apple Music** | Standard user | Windows media session (`GlobalSystemMediaTransportControlsSessionManager`), UI Automation on the Apple Music window, `musics://` links | `AppleMusic.exe`, `powershell.exe` | HTTPS to `itunes.apple.com` (song search, no account) | No code injection; it only presses Apple Music's own buttons and standard media commands. |
 | **Speech recognition** | Microphone permission | WebAudio / `MediaRecorder` | `python.exe` (`faster-whisper`) | None (100% local) | Revocable in Windows privacy settings. |
 | **Always listening** | Microphone permission | WebAudio with a local voice-activity detector | `python.exe` (`faster-whisper`) | None | Toggled with `→`. Anything not addressed to Capri is discarded and never stored. |
 | **Voice macros** | Standard user | `capri_macros.json` in the app data folder | Apps the macro opens or closes | Loopback (Ollama) | Only runs the actions you defined. |
@@ -399,7 +399,7 @@ Paint drawing isn't available on Linux. Everything that differs from Windows is 
 - **Minimum PC**: 6-core CPU, 16 GB of RAM and 10 GB of free disk. It works without a GPU, but replies are slow.
 - **Recommended PC**: the same, plus an NVIDIA GPU with 6 GB+ VRAM and 20 GB of free disk. To play a game at the same time, 12 GB+ VRAM. See [REQUIREMENTS.md](REQUIREMENTS.md) for the measurements.
 - **Internet**: for the first-run setup and for the Edge-TTS voice.
-- **Spotify Desktop (optional)**: native media control.
+- **Apple Music for Windows (optional)**: plays the songs you ask for. Without it, songs open on the Apple Music website.
 - **Cyber Engine Tweaks (optional)**: live Cyberpunk 2077 telemetry, together with Capri's mod. See [Installing the Cyberpunk 2077 mod](#installing-the-cyberpunk-2077-mod).
 - **Fish Audio / ElevenLabs (optional)**: API key in `voice_config.local.json` (see `voice_config.example.json`).
 

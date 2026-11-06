@@ -607,7 +607,7 @@ def cpu_whisper_model():
 # Spanish and English phrases only go to those two.
 WHISPER_NAMES = (
     "Capri, Cyberpunk 2077, Night City, ripperdoc, cyberware, choom, choomba, netrunner, edgerunner, "
-    "Vik Vector, Arasaka, Militech, NCPD, Afterlife, MaxTac, ShadowPlay, Nvidia, F8, League of Legends, Spotify."
+    "Vik Vector, Arasaka, Militech, NCPD, Afterlife, MaxTac, ShadowPlay, Nvidia, F8, League of Legends, Apple Music."
 )
 WHISPER_PHRASES = {
     "en": " Nearest ripperdoc, drop point, game mode, clip that, what should we do next? Recommend a gig, mark Lizzie's Bar, quickhack, cyberpsycho, tarot card, gank, jungle, can we beat that Garen?",

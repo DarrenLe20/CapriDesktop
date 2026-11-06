@@ -11,6 +11,7 @@ import { gameEventBus } from './services/game'
 import { voiceService } from './services/voice-service'
 import { proactiveDialogueService } from './services/proactive-dialogue-service'
 import { gamePresenceService } from './services/game-presence-service'
+import { behaviorDirector } from './services/behavior-director'
 import { updateService } from './services/update-service'
 import { legacyUserDataDir } from './services/legacy-data'
 import fs from 'fs'
@@ -96,11 +97,13 @@ if (!gotTheLock) {
     // Start background proactive system observer (RAM alerts, game detection like League of Legends, etc.)
     systemObserver.start()
 
-    // Start autonomous boredom engine (opens tabs, searches videos, puts music on Spotify periodically)
+    // Start autonomous boredom engine (opens tabs, searches videos, puts music on Apple Music periodically)
     boredomService.start()
     proactiveDialogueService.start()
     gamePresenceService.start()
     gameEventBus.start()
+    // Where the user is working, monitors coming and going, the user coming back: what she does about it
+    behaviorDirector.start()
     // Pre-warm local GPU Whisper STT worker for instant voice responses
     try {
       voiceService.ensureWorker()

@@ -701,10 +701,11 @@ Analyze the drawing, logo, emblem, symbol, or illustration inside this frame car
         else if (/edgerunners/i.test(knownCheck)) finalSubject = 'edgerunners logo'
         else if (/samurai/i.test(knownCheck)) finalSubject = 'samurai logo'
         else if (/nike|swoosh/i.test(knownCheck)) finalSubject = 'nike logo'
+        // Before the apple: "Apple Music" is the music note, not the apple
+        else if (/apple\s*music|itunes|music(?:al)?\s+note|nota\s+musical/i.test(knownCheck)) finalSubject = 'apple music logo'
         else if (/apple/i.test(knownCheck)) finalSubject = 'apple logo'
         else if (/batman/i.test(knownCheck)) finalSubject = 'batman logo'
         else if (/windows|microsoft/i.test(knownCheck)) finalSubject = 'windows logo'
-        else if (/spotify/i.test(knownCheck)) finalSubject = 'spotify logo'
         else if (/perro|dog/i.test(knownCheck)) finalSubject = 'perro'
         else if (/gato|cat/i.test(knownCheck)) finalSubject = 'gato'
         else if (/corazon|heart/i.test(knownCheck)) finalSubject = 'corazón'

@@ -72,8 +72,8 @@ export class ActiveWindowService {
       appTarget = 'TikTok'
     } else if (lower.includes('youtube') || lower.includes('youtu.be') || proc.includes('youtube')) {
       appTarget = 'YouTube'
-    } else if (lower.includes('spotify') || proc.includes('spotify')) {
-      appTarget = 'Spotify'
+    } else if (lower.includes('apple music') || proc.includes('applemusic')) {
+      appTarget = 'Apple Music'
     } else if (lower.includes('discord') || proc.includes('discord')) {
       appTarget = 'Discord'
     } else if (
@@ -115,12 +115,12 @@ export class ActiveWindowService {
     const verb = isEs
       ? appTarget === 'gaming' || appTarget.startsWith('browsing')
         ? ''
-        : appTarget === 'Spotify' || appTarget === 'Discord'
+        : appTarget === 'Apple Music' || appTarget === 'Discord'
         ? 'mirando'
         : 'viendo'
       : appTarget === 'gaming' || appTarget.startsWith('browsing') || consciousnessService.getPreferredLanguage() !== 'en'
         ? '' // The line gets translated: a loose English verb would stay in the middle of it
-        : appTarget === 'Spotify' || appTarget === 'Discord'
+        : appTarget === 'Apple Music' || appTarget === 'Discord'
         ? 'checking'
         : 'watching'
 

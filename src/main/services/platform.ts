@@ -107,7 +107,7 @@ export async function readLinuxProcesses(): Promise<LinuxProcess[]> {
 }
 
 /**
- * Lowercase process names with ".exe" on every platform, so "spotify.exe" means the same process
+ * Lowercase process names with ".exe" on every platform, so "discord.exe" means the same process
  * everywhere (a Proton game already has it). Null if the list couldn't be read.
  */
 export async function listProcessNames(): Promise<Set<string> | null> {
@@ -397,29 +397,26 @@ export async function linuxWindowGeometry(id: string): Promise<{ left: number; t
   return Object.values(geometry).every((n) => Number.isFinite(n)) ? geometry : null
 }
 
-/** Window titles of browsers and Spotify, as the media detection reads them */
+/** Window titles of browsers, as the media detection reads them. Music comes from the media session */
 export async function linuxMediaWindows(): Promise<{ proc: string; title: string }[]> {
   const [windows, procs] = await Promise.all([listLinuxWindows(), readLinuxProcesses()])
   const byPid = new Map(procs.map((p) => [p.pid, p.names]))
   const titles: { proc: string; title: string }[] = []
   for (const w of windows) {
     const names = byPid.get(w.pid) || []
-    const name = names.find((n) => /opera|chrome|chromium|msedge|edge|brave|firefox|spotify/.test(n))
+    const name = names.find((n) => /opera|chrome|chromium|msedge|edge|brave|firefox/.test(n))
     // The media detection knows browsers by their Windows process names
     const proc = name?.includes('edge') ? 'msedge' : name?.includes('chromium') ? 'chrome' : name
     if (proc && w.title) titles.push({ proc: `${proc}.exe`, title: w.title })
   }
-  // Spotify on Wayland has no window to read, but it always reports the song
-  const song = await run('playerctl', ['-p', 'spotify', 'metadata', '--format', '{{artist}} - {{title}}'])
-  if (song?.trim() && song.trim() !== '-') titles.push({ proc: 'spotify.exe', title: song.trim() })
   return titles
 }
 
-/** Browser and Spotify window titles for the media detection. Null if they couldn't be read */
+/** Browser window titles for the media detection. Null if they couldn't be read */
 export async function mediaWindowTitles(): Promise<{ proc: string; title: string }[] | null> {
   if (!isWindows) return linuxMediaWindows()
   const cmd =
-    'tasklist /v /fo csv /fi "IMAGENAME eq opera.exe" & tasklist /v /fo csv /fi "IMAGENAME eq opera_gx.exe" & tasklist /v /fo csv /fi "IMAGENAME eq chrome.exe" & tasklist /v /fo csv /fi "IMAGENAME eq msedge.exe" & tasklist /v /fo csv /fi "IMAGENAME eq brave.exe" & tasklist /v /fo csv /fi "IMAGENAME eq firefox.exe" & tasklist /v /fo csv /fi "IMAGENAME eq spotify.exe"'
+    'tasklist /v /fo csv /fi "IMAGENAME eq opera.exe" & tasklist /v /fo csv /fi "IMAGENAME eq opera_gx.exe" & tasklist /v /fo csv /fi "IMAGENAME eq chrome.exe" & tasklist /v /fo csv /fi "IMAGENAME eq msedge.exe" & tasklist /v /fo csv /fi "IMAGENAME eq brave.exe" & tasklist /v /fo csv /fi "IMAGENAME eq firefox.exe"'
   return new Promise((resolve) => {
     exec(cmd, { timeout: 3500 }, (_err, stdout) => {
       if (!stdout) return resolve(null)
@@ -444,9 +441,20 @@ export function pressKey(key: string): Promise<boolean> {
   return run('xdotool', ['key', key]).then((out) => out !== null)
 }
 
-// Media (MPRIS)
+// Media (MPRIS): whichever player is running, Apple Music's website in a browser included
 
 export type MediaAction = 'next' | 'prev' | 'play' | 'pause' | 'play_pause'
+
+/** What a player is on. app is the player's name ("Apple Music" on Windows), status None without one */
+export interface NowPlaying {
+  app: string
+  /** The media session's own id: tells a browser apart from a music app */
+  source: string
+  status: 'Playing' | 'Paused' | 'Stopped' | 'None'
+  artist: string
+  album: string
+  title: string
+}
 
 const PLAYERCTL_ACTION: Record<MediaAction, string> = {
   next: 'next',
@@ -464,56 +472,39 @@ const MPRIS_METHOD: Record<MediaAction, string> = {
   play_pause: 'PlayPause'
 }
 
-function mprisCall(method: string, ...args: string[]): Promise<boolean> {
-  return run('dbus-send', [
-    '--print-reply',
-    '--dest=org.mpris.MediaPlayer2.spotify',
-    '/org/mpris/MediaPlayer2',
-    `org.mpris.MediaPlayer2.Player.${method}`,
-    ...args
-  ]).then((out) => out !== null)
+/** The first player on the session bus, for when playerctl isn't installed */
+async function firstMprisPlayer(): Promise<string | null> {
+  const out = await run('dbus-send', ['--print-reply', '--dest=org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus.ListNames'])
+  return out?.match(/"(org\.mpris\.MediaPlayer2\.[^"]+)"/)?.[1] ?? null
 }
 
-/** Sends a play/pause/next command to Spotify. dbus-send is there even without playerctl */
+async function mprisCall(method: string): Promise<boolean> {
+  const player = await firstMprisPlayer()
+  if (!player) return false
+  return run('dbus-send', ['--print-reply', `--dest=${player}`, '/org/mpris/MediaPlayer2', `org.mpris.MediaPlayer2.Player.${method}`]).then(
+    (out) => out !== null
+  )
+}
+
+/** Sends a play/pause/next command to the player that's running. dbus-send is there even without playerctl */
 export async function linuxMediaControl(action: MediaAction): Promise<boolean> {
-  if ((await run('playerctl', ['-p', 'spotify', PLAYERCTL_ACTION[action]])) !== null) return true
+  if ((await run('playerctl', [PLAYERCTL_ACTION[action]])) !== null) return true
   return mprisCall(MPRIS_METHOD[action])
 }
 
-export async function linuxMediaStatus(): Promise<{ isPlaying: boolean; title: string }> {
-  const status = await run('playerctl', ['-p', 'spotify', 'status'])
-  if (!status) return { isPlaying: false, title: '' }
-  const title = await run('playerctl', ['-p', 'spotify', 'metadata', '--format', '{{artist}} - {{title}}'])
-  return { isPlaying: status.trim() === 'Playing', title: (title || '').trim() }
-}
-
-/** Same meaning as Spotify's window title on Windows: '' while closed, "Artist - Song" while playing */
-export async function linuxSpotifyTitle(): Promise<string> {
-  const status = await run('playerctl', ['-p', 'spotify', 'status'])
-  if (status === null) return ''
-  return status.trim() === 'Playing' ? (await linuxMediaStatus()).title || 'Spotify' : 'Spotify'
-}
-
-export function linuxOpenSpotifyUri(uri: string): Promise<boolean> {
-  return mprisCall('OpenUri', `string:${uri}`)
-}
-
-/**
- * Spotify's search has no "play the first result" command, so, like the Windows script, this clicks
- * on the top result and puts the mouse back. Needs its window to be visible to xdotool.
- */
-export async function linuxClickSpotifyTopResult(): Promise<boolean> {
-  const id = (await run('xdotool', ['search', '--onlyvisible', '--class', 'spotify']))?.trim().split(/\s+/).pop()
-  if (!id) return false
-  const geometry = await linuxWindowGeometry(id)
-  if (!geometry) return false
-  const mouse = await run('xdotool', ['getmouselocation', '--shell'])
-  await run('xdotool', ['windowactivate', '--sync', id], 2000)
-  const x = Math.min(630, Math.round(geometry.width * 0.63))
-  const clicked = await run('xdotool', ['mousemove', '--window', id, String(x), '180', 'click', '1'])
-  const back = mouse?.match(/^X=(\d+)\s+Y=(\d+)/m)
-  if (back) await run('xdotool', ['mousemove', back[1], back[2]])
-  return clicked !== null
+/** What the running player is on, from playerctl */
+export async function linuxNowPlaying(): Promise<NowPlaying> {
+  const out = await run('playerctl', ['metadata', '--format', '{{playerName}}\t{{status}}\t{{artist}}\t{{album}}\t{{title}}'])
+  if (!out?.trim()) return { app: '', source: '', status: 'None', artist: '', album: '', title: '' }
+  const [player = '', status = '', artist = '', album = '', title = ''] = out.trim().split('\t')
+  return {
+    app: player,
+    source: player,
+    status: status === 'Playing' || status === 'Paused' ? status : 'Stopped',
+    artist,
+    album,
+    title
+  }
 }
 
 // Game libraries

@@ -141,7 +141,7 @@ export const CapriRenderer: React.FC<CapriRendererProps> = ({
   noShadow = false,
   isGamingMode = false
 }) => {
-  const { renderMode, direction: storeDirection, isCatchGameActive } = useCompanionStore()
+  const { renderMode, direction: storeDirection, isCatchGameActive, hop, hopId } = useCompanionStore()
   const direction = overrideDirection || storeDirection
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -377,6 +377,18 @@ export const CapriRenderer: React.FC<CapriRendererProps> = ({
     }
   }, [state])
 
+  // Hopping between monitors replays the same glitch as she goes and as she re-forms
+  const lastHopIdRef = useRef(hopId)
+  useEffect(() => {
+    if (hopId === lastHopIdRef.current) return
+    lastHopIdRef.current = hopId
+    setIsGlitching(true)
+    setGlitchKey((prev) => prev + 1)
+    playAvatarChangeSound()
+    if (glitchTimerRef.current) clearTimeout(glitchTimerRef.current)
+    glitchTimerRef.current = setTimeout(() => setIsGlitching(false), 380)
+  }, [hopId])
+
   // CSS Animation and styling according to the companion states
   const stateStyle = useMemo(() => {
     if (noShadow) {
@@ -527,7 +539,10 @@ export const CapriRenderer: React.FC<CapriRendererProps> = ({
       style={{
         width: '100%',
         height: '100%',
-        WebkitAppRegion: 'no-drag'
+        WebkitAppRegion: 'no-drag',
+        // Hopping to another monitor: she dissolves, then re-forms on the other side
+        opacity: hop === 'out' ? 0 : 1,
+        transition: 'opacity 0.22s ease'
       } as React.CSSProperties}
       title={isCatchGameActive ? localizeLine('CLICK TO CATCH CAPRICORN!', getLineLanguage()) : 'Capricorn // Shift+Drag to move | Click for Dev Deck | Ctrl+Click to chat'}
     >

@@ -4,20 +4,14 @@ import {
   killProcesses,
   launchFirstLinuxApp,
   launchLinuxApp,
-  linuxClickSpotifyTopResult,
-  linuxMediaControl,
-  linuxMediaStatus,
-  linuxOpenSpotifyUri,
-  linuxSpotifyTitle,
   linuxSteamAppsDirs,
   LINUX_CALCULATORS,
   LINUX_EDITORS,
   listDesktopEntries,
-  listProcessNames,
   matchDesktopEntry,
   startCommand
 } from '../../services/platform'
-import { scriptPath } from '../../services/app-paths'
+import { appleMusic, isMusicApp, withoutMusicApp, type MediaAction, type SongResult } from '../../services/apple-music-service'
 import * as os from 'os'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -38,6 +32,13 @@ function unsupportedFile(targetPath: string): { success: boolean; output: string
     success: false,
     output: `Unsupported file, left untouched: ${targetPath} is not a plain-text file (Word, Excel, PDF, image or other binary). Tell the user you cannot read or edit this format.`
   }
+}
+
+export interface ToolResult {
+  success: boolean
+  output: string
+  /** How a song request ended, so she can say what really played */
+  song?: SongResult
 }
 
 export interface ToolDefinition {
@@ -135,13 +136,13 @@ export const CAPRI_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'open_application',
-    description: 'Launch an application, game, or song on this PC (e.g. League of Legends / lol, Cyberpunk 2077, Palworld, Slay the Spire, Roblox, Valorant, OBS Studio, Spotify, Chrome, Steam, Discord, Calculator, Notepad).',
+    description: 'Launch an application, game, or song on this PC (e.g. League of Legends / lol, Cyberpunk 2077, Palworld, Slay the Spire, Roblox, Valorant, OBS Studio, Apple Music, Chrome, Steam, Discord, Calculator, Notepad). Songs play on Apple Music.',
     parameters: {
       type: 'object',
       properties: {
         appOrUrl: {
           type: 'string',
-          description: 'Name of the app or game (e.g. "lol", "cyberpunk", "palworld", "spotify", "youtube", "obs", "chrome", "steam", "discord", "notepad", "calc") or website URL.'
+          description: 'Name of the app or game (e.g. "lol", "cyberpunk", "palworld", "apple_music", "youtube", "obs", "chrome", "steam", "discord", "notepad", "calc") or website URL. Use "apple_music" to play a song.'
         },
         query: {
           type: 'string',
@@ -157,13 +158,13 @@ export const CAPRI_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'close_application',
-    description: 'Close, terminate, or kill a running game, application, or process on this PC (e.g. League of Legends / lol, Cyberpunk 2077, Palworld, OBS Studio, Chrome, Steam, Spotify, Discord, Calculator, Notepad).',
+    description: 'Close, terminate, or kill a running game, application, or process on this PC (e.g. League of Legends / lol, Cyberpunk 2077, Palworld, OBS Studio, Chrome, Steam, Apple Music, Discord, Calculator, Notepad).',
     parameters: {
       type: 'object',
       properties: {
         appName: {
           type: 'string',
-          description: 'Name of the application, game, or executable to close (e.g. "lol", "cyberpunk", "palworld", "obs", "chrome", "steam", "spotify", "discord", "calc", "notepad").'
+          description: 'Name of the application, game, or executable to close (e.g. "lol", "cyberpunk", "palworld", "obs", "chrome", "steam", "apple_music", "discord", "calc", "notepad").'
         }
       },
       required: ['appName']
@@ -185,7 +186,7 @@ export const CAPRI_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'media_control',
-    description: 'Control music playback without changing to a specific title (e.g. skip to next song, previous song, play, pause). If the user asks for a specific song name (e.g. "change song to X", "play X"), use open_application with appOrUrl: "spotify" and query: "<song>" instead.',
+    description: 'Control music playback without changing to a specific title (e.g. skip to next song, previous song, play, pause). Works on Apple Music, or on whatever else is playing. If the user asks for a specific song name (e.g. "change song to X", "play X"), use open_application with appOrUrl: "apple_music" and query: "<song>" instead.',
     parameters: {
       type: 'object',
       properties: {
@@ -265,11 +266,11 @@ export class ToolExecutor {
     name: string,
     args: Record<string, unknown>,
     cwd: string
-  ): Promise<{ success: boolean; output: string }> {
+  ): Promise<ToolResult> {
     try {
       switch (name) {
         case 'media_control': {
-          const action = String(args.action || 'next') as 'next' | 'prev' | 'play' | 'pause' | 'play_pause'
+          const action = String(args.action || 'next') as MediaAction
           return await ToolExecutor.mediaControl(action)
         }
         case 'trigger_clip': {
@@ -599,7 +600,7 @@ export class ToolExecutor {
     }
   }
 
-  private static async openApplication(args: Record<string, unknown>): Promise<{ success: boolean; output: string }> {
+  private static async openApplication(args: Record<string, unknown>): Promise<ToolResult> {
     const rawTarget = String(args.appOrUrl || args.target || args.app || args.name || '').trim()
     const rawUrl = String(args.url || '').trim()
     let rawQuery = String(args.query || args.song || args.track || args.search || '').trim()
@@ -608,22 +609,17 @@ export class ToolExecutor {
       return { success: false, output: 'Error: No application, URL, or song query provided to open.' }
     }
 
-    let target = (rawTarget || (rawQuery ? 'spotify' : '')).toLowerCase().trim()
+    let target = (rawTarget || (rawQuery ? 'apple_music' : '')).toLowerCase().trim()
 
-    // Conversational Context Repair: Fix inputs like "play on spotify <song>" where target became "on" or "on spotify"
-    if (/^(?:on|in|en)\s+spotify$/i.test(target) || (target === 'on' && (/spotify/i.test(rawQuery) || /spotify/i.test(rawTarget)))) {
-      target = 'spotify'
-    } else if (target === 'on' || target === 'en' || target === 'in') {
-      if (rawQuery.toLowerCase().includes('spotify') || /musica|music|song|cancion/i.test(rawQuery)) {
-        target = 'spotify'
-        rawQuery = rawQuery.replace(/^(?:on\s+spotify|en\s+spotify|spotify)\s*/i, '').trim()
-      } else {
-        target = 'spotify'
-      }
+    // "play on apple music <song>" can leave "on" or "on apple music" as the app
+    if (target === 'on' || target === 'en' || target === 'in') {
+      target = 'apple_music'
+      rawQuery = withoutMusicApp(rawQuery)
     } else if (target.startsWith('on ') || target.startsWith('en ') || target.startsWith('in ')) {
       const stripped = target.replace(/^(?:on|en|in)\s+/i, '').trim()
-      if (stripped.includes('spotify')) {
-        target = 'spotify'
+      if (isMusicApp(stripped)) {
+        target = 'apple_music'
+        rawQuery = rawQuery || withoutMusicApp(stripped)
       } else if (stripped.includes('youtube')) {
         target = 'youtube'
       } else {
@@ -746,103 +742,39 @@ export class ToolExecutor {
         return { success: true, output: 'Launched Steam client.' }
       }
 
-      // Spotify (with song search, playback, and skip/change controls)
-      if (target.includes('spotify') || target.includes('musica') || target.includes('music') || target.includes('cancion')) {
-        let query = rawQuery || (target.includes('spotify') ? target.replace(/^(?:spotify|abre\s+spotify|open\s+spotify)\s*/i, '').trim() : '')
-        // Clean out filler phrases (e.g. "and start playing", "play", "pon", "listen to", "on spotify")
-        query = query
+      // Apple Music: plays a song by name, or resumes when no song is given
+      if (isMusicApp(target) || target.includes('musica') || target.includes('música') || target.includes('music') || target.includes('cancion')) {
+        let query = rawQuery || withoutMusicApp(target)
+        // Clean out filler phrases (e.g. "and start playing", "play", "pon", "listen to", "on apple music")
+        query = withoutMusicApp(query)
           .replace(/^(?:now\s+)?(?:change|switch|cambia|cambiar|pasa|pasar)\s+(?:the\s+|la\s+|el\s+|de\s+)?(?:song|track|cancion|canción|tema|musica|música)?\s*(?:to|a|por)\s+/i, '')
           .replace(/^(?:and\s+start\s+playing|start\s+playing|play\s+song|play\s+track|play|pon|pone|reproduce|escuchar|listen\s+to|poneme|busca|search\s+for)\s+/i, '')
-          .replace(/\s+(?:on\s+spotify|en\s+spotify|on\s+youtube|en\s+youtube)$/i, '')
+          .replace(/\s+(?:on\s+youtube|en\s+youtube)$/i, '')
+          .replace(/^(?:music|musica|música|apple_music)$/i, '')
           .trim()
-
-        const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-        const spotifyExe = path.join(appData, 'Spotify', 'Spotify.exe')
-        const spotifyDir = path.dirname(spotifyExe)
-        const mediaScriptPath = scriptPath('media_controller.ps1')
 
         // If user intent was purely to change song / next track without a target song:
         if (query === '__NEXT_TRACK__' || /^(?:cambia\s+(?:de\s+|la\s+)?cancion|skip\s+(?:song|track)|next\s+(?:song|track)|skip|next|otra\s+cancion|siguiente\s+cancion|siguiente|otra)$/i.test(query)) {
           return await ToolExecutor.mediaControl('next')
         }
 
-        if (isLinux) return await ToolExecutor.linuxSpotify(query)
-
-        const isChangeRequested =
-          args.isChange === true ||
-          args.forceChange === true ||
-          /^(?:now\s+)?(?:change|switch|cambia|cambiar|pasa|pasar)\s+/i.test(rawTarget) ||
-          /^(?:now\s+)?(?:change|switch|cambia|cambiar|pasa|pasar)\s+/i.test(rawQuery)
-
-        if (query) {
-          const spotifyUri = `spotify:search:${encodeURIComponent(query)}`
-          const webUrl = `https://open.spotify.com/search/${encodeURIComponent(query)}`
-
-          // Trigger keyboard navigation & play command on Spotify to start playback on top result
-          // If changing song: use 'change_top' which forces track change
-          // If opening/regular play: use 'play_top' which verifies playback and avoids double toggling
-          const triggerPlayback = () => {
-            const escapedQuery = query.replace(/"/g, '`"').replace(/'/g, "''")
-            const action = isChangeRequested ? 'change_top' : 'play_top'
-            exec(
-              `powershell -ExecutionPolicy Bypass -File "${mediaScriptPath}" -Action ${action} -Query "${escapedQuery}"`
-            )
-          }
-
-          // Cold start: Spotify's window shows up before its UI accepts the search keys, so a
-          // fixed delay lost the song and only a second request played it. Wait for the real
-          // window, give the UI a moment, play, and retry once if nothing is playing.
-          const playAfterColdStart = async () => {
-            await ToolExecutor.waitForSpotifyWindow(30000)
-            await new Promise((r) => setTimeout(r, 3000))
-            triggerPlayback()
-            await new Promise((r) => setTimeout(r, 7000))
-            if (!(await ToolExecutor.isSpotifyPlaying())) {
-              console.log('[ToolExecutor] Spotify is not playing after cold start, retrying the search')
-              triggerPlayback()
-            }
-          }
-
-          exec('tasklist /FI "IMAGENAME eq Spotify.exe"', (_err, stdout) => {
-            const isAlreadyRunning = stdout && stdout.includes('Spotify.exe')
-            if (isAlreadyRunning) {
-              triggerPlayback()
-            } else {
-              if (fs.existsSync(spotifyExe)) {
-                exec(`powershell -Command "Start-Process -FilePath '${spotifyExe}' -WorkingDirectory '${spotifyDir}'"`, () => {
-                  void playAfterColdStart()
-                })
-              } else {
-                exec(`cmd.exe /c start "" "${spotifyUri}"`, (err) => {
-                  if (err) shell.openExternal(webUrl)
-                  void playAfterColdStart()
-                })
-              }
-            }
-          })
-
-          return {
-            success: true,
-            output: isChangeRequested
-              ? `Switched track to "${query}" on Spotify!`
-              : `Launched Spotify, searched for "${query}", and queued playback for the top result!`
-          }
-        } else {
-          if (fs.existsSync(spotifyExe)) {
-            exec(`powershell -Command "Start-Process -FilePath '${spotifyExe}' -WorkingDirectory '${spotifyDir}'"`)
-          } else {
-            exec('cmd.exe /c start spotify:', (_err) => {
-              if (_err) shell.openExternal('https://open.spotify.com')
-            })
-          }
-
-          // Trigger play resume
-          setTimeout(() => {
-            exec(`powershell -ExecutionPolicy Bypass -File "${mediaScriptPath}" -Action play`)
-          }, 1000)
-
-          return { success: true, output: 'Launched Spotify and resumed playback.' }
+        if (!query) {
+          const res = isMusicApp(target) ? await appleMusic.resume() : await appleMusic.control('play')
+          return res.ok
+            ? { success: true, output: 'Launched Apple Music and resumed playback.' }
+            : { success: false, output: 'No music player is open, so there is nothing to control.' }
         }
+
+        const song = await appleMusic.playSong(query)
+        const output =
+          song.outcome === 'playing'
+            ? `Playing "${song.title}" by ${song.artist} on Apple Music.`
+            : song.outcome === 'opened'
+            ? `Opened "${song.title}" by ${song.artist} in Apple Music, but it did not start playing on its own.`
+            : song.outcome === 'web'
+            ? `Apple Music is not installed here, so I opened its web search for "${song.query}" in the browser.`
+            : `Could not find "${song.query}" on Apple Music.`
+        return { success: song.outcome !== 'not_found', output, song }
       }
 
       // Discord
@@ -891,7 +823,7 @@ export class ToolExecutor {
 
       // Generic Windows Command Fallback (Never execute single preposition words as executables)
       if (/^(?:on|in|en|at|to|for|the|a|an)$/i.test(target)) {
-        return { success: false, output: `Ignored invalid preposition target "${rawTarget}". Did you mean to search or play something on Spotify?` }
+        return { success: false, output: `Ignored invalid preposition target "${rawTarget}". Did you mean to search or play something on Apple Music?` }
       }
 
       if (isLinux) {
@@ -936,6 +868,12 @@ export class ToolExecutor {
     const target = rawTarget.toLowerCase()
 
     try {
+      // Before the games: their name cleanup cuts the "app" out of "apple music"
+      if (isMusicApp(target) || target.includes('musica') || target.includes('music')) {
+        killProcesses(['AppleMusic'])
+        return { success: true, output: 'Closed Apple Music.' }
+      }
+
       // Check known game process list first (e.g. LoL, Cyberpunk, Palworld, Roblox, Valorant)
       const gameProcesses = this.resolveGameProcesses(target)
       if (gameProcesses.length > 0 && gameProcesses[0] !== target) {
@@ -997,19 +935,14 @@ export class ToolExecutor {
         target.includes('aplicacion') ||
         target.includes('programa')
       ) {
-        // Kill active browser, game, or spotify process without closing Capri
-        killProcesses(['opera', 'opera_gx', 'chrome', 'msedge', 'brave', 'firefox', 'Spotify'])
+        // Kill active browser, game, or Apple Music process without closing Capri
+        killProcesses(['opera', 'opera_gx', 'chrome', 'msedge', 'brave', 'firefox', 'AppleMusic'])
         return { success: true, output: 'Closed active application.' }
       }
 
       if (target.includes('steam')) {
         killProcesses(['steam', 'steamwebhelper'])
         return { success: true, output: 'Closed Steam.' }
-      }
-
-      if (target.includes('spotify') || target.includes('musica') || target.includes('music')) {
-        killProcesses(['Spotify'])
-        return { success: true, output: 'Closed Spotify.' }
       }
 
       if (target.includes('discord')) {
@@ -1070,120 +1003,29 @@ export class ToolExecutor {
     }
   }
 
-  /** Title of Spotify's main window ('' while it's still loading or closed) */
-  private static spotifyWindowTitle(): Promise<string> {
-    if (isLinux) return linuxSpotifyTitle()
-    return new Promise((resolve) => {
-      exec(
-        `powershell -NoProfile -Command "(Get-Process Spotify -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle } | Select-Object -First 1).MainWindowTitle"`,
-        { windowsHide: true, timeout: 5000 },
-        (_err, stdout) => resolve(String(stdout || '').trim())
-      )
-    })
+  /** Play, pause or skip on Apple Music, or on whatever else is playing */
+  public static async mediaControl(action: MediaAction = 'next'): Promise<ToolResult> {
+    const res = await appleMusic.control(action)
+    if (!res.ok) return { success: false, output: 'No music player is open, so there is nothing to control.' }
+    const where = res.app || 'the music player'
+    const desc =
+      action === 'next'
+        ? `Skipped to the next song on ${where}`
+        : action === 'prev'
+        ? `Returned to the previous song on ${where}`
+        : action === 'pause'
+        ? `Paused ${where}`
+        : action === 'play'
+        ? `Resumed ${where}`
+        : `Toggled playback on ${where}`
+    return { success: true, output: `${desc}.` }
   }
 
-  /** Waits until Spotify has a titled main window (its UI is up), up to timeoutMs */
-  public static async waitForSpotifyWindow(timeoutMs: number): Promise<boolean> {
-    const until = Date.now() + timeoutMs
-    while (Date.now() < until) {
-      if (await ToolExecutor.spotifyWindowTitle()) return true
-      await new Promise((r) => setTimeout(r, 700))
-    }
-    return false
-  }
-
-  /** While a song plays, Spotify's window title is "Artist - Song" instead of just "Spotify ..." */
-  public static async isSpotifyPlaying(): Promise<boolean> {
-    const title = await ToolExecutor.spotifyWindowTitle()
-    return !!title && !/^spotify(?:\s+(?:free|premium))?$/i.test(title)
-  }
-
-  public static async mediaControl(
-    action: 'next' | 'prev' | 'play' | 'pause' | 'play_pause' = 'next'
-  ): Promise<{ success: boolean; output: string }> {
-    if (isLinux) {
-      return (await linuxMediaControl(action))
-        ? { success: true, output: `Spotify: ${action} done.` }
-        : { success: false, output: 'Spotify is not open, so there is nothing to control.' }
-    }
-    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-    const spotifyExe = path.join(appData, 'Spotify', 'Spotify.exe')
-    const spotifyDir = path.dirname(spotifyExe)
-    const mediaScript = scriptPath('media_controller.ps1')
-
-    if (fs.existsSync(spotifyExe)) {
-      exec(`powershell -Command "if (-not (Get-Process Spotify -ErrorAction SilentlyContinue)) { Start-Process -FilePath '${spotifyExe}' -WorkingDirectory '${spotifyDir}' }"`)
-    }
-
-    return new Promise((resolve) => {
-      exec(`powershell -ExecutionPolicy Bypass -File "${mediaScript}" -Action "${action}"`, (err) => {
-        if (err) {
-          resolve({ success: false, output: `Media control error: ${err.message}` })
-        } else {
-          const desc =
-            action === 'next'
-              ? 'Skipped to the next song on Spotify'
-              : action === 'prev'
-              ? 'Returned to the previous song on Spotify'
-              : action === 'pause'
-              ? 'Paused Spotify playback'
-              : action === 'play'
-              ? 'Resumed Spotify playback'
-              : 'Toggled playback on Spotify'
-          resolve({ success: true, output: `${desc} successfully!` })
-        }
-      })
-    })
-  }
-
+  /** The song playing now as "Artist - Song", for the media IPC */
   public static async getMediaStatus(): Promise<{ isPlaying: boolean; title: string }> {
-    if (isLinux) return linuxMediaStatus()
-    const mediaScript = scriptPath('media_controller.ps1')
-
-    return new Promise((resolve) => {
-      exec(`powershell -ExecutionPolicy Bypass -File "${mediaScript}" -Action "status"`, (err, stdout) => {
-        if (err || !stdout) {
-          resolve({ isPlaying: false, title: '' })
-          return
-        }
-        try {
-          const json = JSON.parse(stdout.trim())
-          resolve({ isPlaying: !!json.isPlaying, title: String(json.title || '') })
-        } catch {
-          resolve({ isPlaying: false, title: '' })
-        }
-      })
-    })
-  }
-
-  /** Opens Spotify if needed and plays a search, or resumes when there's no query */
-  private static async linuxSpotify(query: string): Promise<{ success: boolean; output: string }> {
-    const running = (await listProcessNames())?.has('spotify.exe')
-    if (!running && !launchLinuxApp('spotify')) {
-      await shell.openExternal(query ? `https://open.spotify.com/search/${encodeURIComponent(query)}` : 'https://open.spotify.com')
-      return { success: true, output: 'The Spotify app is not installed here, so I opened the web player in the browser.' }
-    }
-
-    const play = async () => {
-      await linuxOpenSpotifyUri(`spotify:search:${encodeURIComponent(query)}`)
-      await new Promise((r) => setTimeout(r, 1500))
-      await linuxClickSpotifyTopResult()
-    }
-    void (async () => {
-      if (!running) {
-        await ToolExecutor.waitForSpotifyWindow(30000)
-        await new Promise((r) => setTimeout(r, 3000))
-      }
-      if (!query) return void (await linuxMediaControl('play'))
-      await play()
-      await new Promise((r) => setTimeout(r, 7000))
-      if (!(await ToolExecutor.isSpotifyPlaying())) await play()
-    })()
-
-    return {
-      success: true,
-      output: query ? `Searched for "${query}" on Spotify and queued the top result.` : 'Launched Spotify and resumed playback.'
-    }
+    const now = await appleMusic.nowPlaying()
+    const title = [now.artist, now.title].filter(Boolean).join(' - ')
+    return { isPlaying: now.status === 'Playing', title }
   }
 
   // --- game & app resolver helpers ---

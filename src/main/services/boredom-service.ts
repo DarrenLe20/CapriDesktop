@@ -6,28 +6,42 @@ import { consciousnessService } from './consciousness-service'
 import { ToolExecutor } from '../agents/tools/tool-executor'
 import { windowManager } from '../windows/window-manager'
 import { cyberpunkAdapter, lolLiveAdapter } from './game'
+import { roamingManager } from '../roaming/roaming-manager'
+import { presenceService } from './presence-service'
+
+/** Before putting music or a video on by herself, she bets on it with a game of tag (at most every 45 minutes) */
+const DEAL_GAP_MS = 45 * 60 * 1000
+// English: lines are translated on their way out
+const DEAL_MUSIC_LINES_EN = ['Bored! Wanna play tag? Click me to start. Catch me and you pick the music, lose and I pick.', 'Deal time! Click me and chase me across the screens. You win, you pick the song.']
+const DEAL_VIDEO_LINES_EN = ['Bored! Wanna play tag? Click me to start. Catch me and you pick what we watch, lose and I pick.', 'Deal time! Click me and chase me across the screens. You win, you pick the video.']
+const DEAL_IGNORED_LINES_EN = ['Details! Never mind.', 'Eh, whatever. Maybe later.']
+const DEAL_USER_WON_LINES_EN = ['Okay, okay, you win! Your pick. Just tell me what you want.', 'Caught fair and square. Your call, choom.']
+const DEAL_CAPRI_WON_LINES_EN = ['Too slow! My pick.', 'Game over! I pick.']
+
+const pick = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)]
 
 interface BoredomActionConfig {
-  category: 'spotify' | 'youtube' | 'web_search'
+  category: 'apple_music' | 'youtube' | 'web_search'
   target: string
   phrasesEs: string[]
   phrasesEn: string[]
 }
 
-const SPOTIFY_SONGS = [
-  'The Rebel Path Cyberpunk 2077',
-  'Resist and Disorder Cyberpunk',
-  'I Really Want to Stay at Your House',
-  'Hyper - Spoiler Cyberpunk',
+// Real songs, artist and title: each one is looked up and played on Apple Music
+const APPLE_MUSIC_SONGS = [
+  'P.T. Adamczyk - The Rebel Path',
+  'Rezodrone - Resist and Disorder',
+  'Rosa Walton - I Really Want to Stay at Your House',
+  'Hyper Spoiler',
   'Daft Punk - Harder Better Faster Stronger',
   'Gorillaz - Feel Good Inc',
   'Charly Garcia - Demoliendo Hoteles',
   'Duki - She Don\'t Give a FO',
-  'Skrillex - Bangarang',
+  'Skrillex - Scary Monsters and Nice Sprites',
   'Kavinsky - Nightcall',
   'Carpenter Brut - Turbo Killer',
-  'Synthwave Cyberpunk Radio',
-  'Anime Openings Playlist',
+  'The Midnight - Los Angeles',
+  'Kenshi Yonezu - KICK BACK',
   'Soda Stereo - De Musica Ligera'
 ]
 
@@ -56,6 +70,7 @@ export class BoredomService {
   private timer: NodeJS.Timeout | null = null
   private isRunning = false
   private lastTriggeredTime = 0
+  private lastDealAt = 0
   private minCooldownMs = 8 * 60 * 1000 // At least 8 minutes between autonomous boredom actions
   private gamingModeUnsub: (() => void) | null = null
 
@@ -183,7 +198,31 @@ export class BoredomService {
    * Capri complains that she is bored, announces what she is doing,
    * and opens a tab / plays a song / searches the web!
    */
-  public async triggerBoredomAction(forcedCategory?: 'spotify' | 'youtube' | 'web_search'): Promise<boolean> {
+  /**
+   * Instead of just putting something on, she offers tag: click her to start the chase. Catch her and the user
+   * picks, lose and she does what she meant to. Ignoring her costs nothing: she shrugs and does nothing.
+   */
+  private offerDeal(category: 'apple_music' | 'youtube'): boolean {
+    if (Date.now() - this.lastDealAt < DEAL_GAP_MS || !presenceService.canActNow('speak')) return false
+    const offered = roamingManager.offerTag((result) => {
+      if (result === 'ignored') {
+        agentManager.setCompanionSpeech(pick(DEAL_IGNORED_LINES_EN), 3000, false)
+      } else if (result === 'caught') {
+        agentManager.setCompanionSpeech(pick(DEAL_USER_WON_LINES_EN), 4500, true)
+      } else {
+        agentManager.setCompanionSpeech(pick(DEAL_CAPRI_WON_LINES_EN), 3000, true)
+        setTimeout(() => void this.triggerBoredomAction(category), 3200)
+      }
+    })
+    if (!offered) return false
+    this.lastDealAt = Date.now()
+    presenceService.noteLine()
+    agentManager.setCompanionState('happy')
+    agentManager.setCompanionSpeech(pick(category === 'apple_music' ? DEAL_MUSIC_LINES_EN : DEAL_VIDEO_LINES_EN), 6000, true)
+    return true
+  }
+
+  public async triggerBoredomAction(forcedCategory?: 'apple_music' | 'youtube' | 'web_search'): Promise<boolean> {
     if (windowManager.isGamingModeActive()) {
       return false
     }
@@ -194,41 +233,44 @@ export class BoredomService {
 
     const isEs = consciousnessService.getPreferredLanguage() === 'es'
 
-    // Pick category: 35% Spotify, 35% YouTube, 30% Web Search
-    const category: 'spotify' | 'youtube' | 'web_search' = forcedCategory ?? (() => {
+    // Pick category: 35% Apple Music, 35% YouTube, 30% Web Search
+    const category: 'apple_music' | 'youtube' | 'web_search' = forcedCategory ?? (() => {
       const r = Math.random()
-      if (r < 0.35) return 'spotify'
+      if (r < 0.35) return 'apple_music'
       if (r < 0.70) return 'youtube'
       return 'web_search'
     })()
 
     this.lastTriggeredTime = Date.now()
 
-    if (category === 'spotify') {
-      const song = SPOTIFY_SONGS[Math.floor(Math.random() * SPOTIFY_SONGS.length)]
+    // Music and videos start with a bet (a category picked from the deck is just done)
+    if (!forcedCategory && category !== 'web_search' && this.offerDeal(category)) return true
+
+    if (category === 'apple_music') {
+      const song = APPLE_MUSIC_SONGS[Math.floor(Math.random() * APPLE_MUSIC_SONGS.length)]
       const phrasesEs = [
-        `¡Uff, qué embole, {name}! Estoy re aburrida de estar acá quieta... Pará que pongo "${song}" en Spotify para levantar la onda.`,
-        `Me aburrí de este silencio mortal, choomba... Hackeando Spotify ya mismo, te pongo "${song}" bien arriba.`,
-        `¡Qué embole mal! No me aguanto las ganas de escuchar música, mandando "${song}" a Spotify ahora mismo.`
+        `¡Uff, qué embole, {name}! Estoy re aburrida de estar acá quieta... Pará que pongo "${song}" en Apple Music para levantar la onda.`,
+        `Me aburrí de este silencio mortal, choomba... Hackeando Apple Music ya mismo, te pongo "${song}" bien arriba.`,
+        `¡Qué embole mal! No me aguanto las ganas de escuchar música, mandando "${song}" a Apple Music ahora mismo.`
       ]
       const phrasesEn = [
-        `Uff, so bored, {name}! I'm completely bored just standing around... Hold up, throwing "${song}" on Spotify to hype up the vibe!`,
-        `Silence is killing me, choomba... Jacking into Spotify right now, putting on "${song}"!`
+        `Uff, so bored, {name}! I'm completely bored just standing around... Hold up, throwing "${song}" on Apple Music to hype up the vibe!`,
+        `Silence is killing me, choomba... Jacking into Apple Music right now, putting on "${song}"!`
       ]
       const speech = isEs ? phrasesEs[Math.floor(Math.random() * phrasesEs.length)] : phrasesEn[Math.floor(Math.random() * phrasesEn.length)]
 
       agentManager.setCompanionState('talking')
-      agentManager.setCompanionSpeech(speech, 5000, true, `{name} was quiet and you got bored, so you put "${song}" on Spotify. Nobody asked: you picked it yourself because you like it`)
+      agentManager.setCompanionSpeech(speech, 5000, true, `{name} was quiet and you got bored, so you put "${song}" on Apple Music. Nobody asked: you picked it yourself because you like it`)
 
       setTimeout(async () => {
         try {
           await ToolExecutor.execute(
             'open_application',
-            { appOrUrl: 'spotify', query: song, isChange: true },
+            { appOrUrl: 'apple_music', query: song, isChange: true },
             ''
           )
         } catch (e) {
-          console.warn('[BoredomService] Spotify execution error:', e)
+          console.warn('[BoredomService] Apple Music error:', e)
         }
         agentManager.setCompanionState('happy')
       }, 1800)

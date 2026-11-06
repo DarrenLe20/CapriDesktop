@@ -306,7 +306,7 @@ export class MacroService {
         'Action types:',
         '{"type":"open_app","app":"<game or app name, e.g. League of Legends, Cyberpunk 2077, Discord, Steam, OBS>"}',
         '{"type":"close_app","app":"<name>"}',
-        '{"type":"play_music","query":"<song, artist or playlist to play on Spotify>"}',
+        '{"type":"play_music","query":"<song or artist to play on Apple Music>"}',
         '{"type":"open_url","url":"https://..."}',
         '{"type":"media","action":"next|prev|play|pause"}',
         '{"type":"gaming_mode","on":true|false}   (Capri\'s game mode / modo game)',
@@ -330,7 +330,7 @@ export class MacroService {
           options: { temperature: 0.1, num_predict: 400 },
           messages: [
             { role: 'system', content: system },
-            { role: 'user', content: 'cuando yo diga "hora de rankear" abri el lol y pone phonk en spotify' },
+            { role: 'user', content: 'cuando yo diga "hora de rankear" abri el lol y pone phonk en apple music' },
             { role: 'assistant', content: '{"trigger":"hora de rankear","actions":[{"type":"open_app","app":"League of Legends"},{"type":"play_music","query":"phonk"}]}' },
             { role: 'user', content: sentence }
           ]
@@ -370,7 +370,7 @@ export class MacroService {
       const p = part.trim()
       if (!p) continue
       let m: RegExpMatchArray | null
-      if ((m = p.match(/(?:pon[eé]|pone|reproduc[ií]|reproduce|play|put\s+on)\s+(?:la\s+|el\s+|my\s+|mi\s+)?(.+?)(?:\s+(?:en|on)\s+spotify)?$/i))) {
+      if ((m = p.match(/(?:pon[eé]|pone|reproduc[ií]|reproduce|play|put\s+on)\s+(?:la\s+|el\s+|my\s+|mi\s+)?(.+?)(?:\s+(?:en|on)\s+apple\s*music)?$/i))) {
         actions.push({ type: 'play_music', query: m[1] })
       } else if (/(?:activ[aá]|activa|turn\s+on|enable)\s+(?:el\s+)?(?:modo\s+)?(?:game|gaming|juego)/i.test(p)) {
         actions.push({ type: 'gaming_mode', on: true })
@@ -402,8 +402,8 @@ export class MacroService {
             break
           }
           case 'play_music': {
-            const r = await ToolExecutor.execute('open_application', { appOrUrl: 'spotify', query: a.query }, cwd)
-            results.push(`spotify "${a.query}": ${r.success ? 'ok' : r.output}`)
+            const r = await ToolExecutor.execute('open_application', { appOrUrl: 'apple_music', query: a.query }, cwd)
+            results.push(`apple music "${a.query}": ${r.success ? 'ok' : r.output}`)
             break
           }
           case 'open_url': {
@@ -450,7 +450,7 @@ export class MacroService {
       switch (a.type) {
         case 'open_app': return es ? `abro ${a.app}` : `open ${a.app}`
         case 'close_app': return es ? `cierro ${a.app}` : `close ${a.app}`
-        case 'play_music': return es ? `pongo "${a.query}" en Spotify` : `play "${a.query}" on Spotify`
+        case 'play_music': return es ? `pongo "${a.query}" en Apple Music` : `play "${a.query}" on Apple Music`
         case 'open_url': return es ? `abro ${a.url}` : `open ${a.url}`
         case 'media':
           return es

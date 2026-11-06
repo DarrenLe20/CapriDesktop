@@ -155,7 +155,7 @@ export interface IElectronAPI {
   boredom: {
     getEnabled: () => Promise<boolean>
     setEnabled: (enabled: boolean) => Promise<boolean>
-    trigger: (category?: 'spotify' | 'youtube' | 'web_search') => Promise<boolean>
+    trigger: (category?: 'apple_music' | 'youtube' | 'web_search') => Promise<boolean>
   }
   triggerClip: () => Promise<{ success: boolean; message?: string }>
   scanner: {

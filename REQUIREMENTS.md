@@ -58,7 +58,7 @@ The first-run wizard downloads FFmpeg and Ollama into the app's own folder witho
 | `zstd` | Installing Ollama without a password | The wizard runs Ollama's official installer, which asks for the password |
 | `xdotool` | Gaming Mode and scanner click-through, active window, game detection, clip key | Capri stays click-through without reacting to the mouse, and doesn't notice games |
 | `wmctrl` | Perching on windows, detecting videos in the browser | She doesn't perch or comment on what you're watching |
-| `playerctl` | Spotify status and song | Play and skip still work, she doesn't know what's playing |
+| `playerctl` | Play, pause and skip on the player that's running, and what it's playing | Play and skip still work through D-Bus, she doesn't know what's playing |
 | `xdg-utils` | Opening links and apps | Links and unknown apps don't open |
 | `pkexec` (polkit) | The wizard's password prompt | The wizard shows the command to run by hand |
 
@@ -124,7 +124,7 @@ Differences from Windows:
 - **PowerShell**: 5.1 (built into Windows) or PowerShell 7+.
 - Execution policy should allow local scripts (`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`).
 - Used by native background helpers:
-  - `src/main/tools/media_controller.ps1` (Spotify control via Windows Media APIs)
+  - `scripts/apple_music.ps1` (Apple Music through the Windows media session and UI Automation)
   - Window geometry and active app detection for perching on browser tabs.
 
 ---
@@ -188,7 +188,7 @@ Installed automatically via `npm install` in the project folder:
 
 ## 5. Third-Party Application Integrations
 
-- **Spotify Desktop**: Needed for media queries and playback control ("reproduce canción", "cambia de canción", "pausa la música").
+- **Apple Music for Windows**: Plays the songs you ask for ("reproduce canción", "play <song>"). Pause, skip and "what am I listening to" work with any player that shows up in the Windows media controls ("cambia de canción", "pausa la música"). On Linux, songs open on the Apple Music website.
 - **Web Browsers (Chrome / Edge / Firefox / Opera)**: Supported for tab perched resting pose and web search breaches.
 - **Drawing Tools (MS Paint / Photoshop / Figma)**: Supported through the Neural Scanner Frame's click-through transparent layer.
 
